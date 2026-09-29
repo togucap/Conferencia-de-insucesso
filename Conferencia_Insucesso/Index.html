@@ -227,6 +227,24 @@
           </div>
         </div>
 
+        <!-- NFs da carga que não estavam nos relatórios de faturamento (Cruzamento de NFs) -->
+        <div id="containerNFsPendentes" class="card-container pendentes-container" style="display: none;">
+          <button type="button" id="headerNFsPendentes" class="erro-header" aria-expanded="true" aria-controls="corpoNFsPendentes">
+            <span class="card-title">
+              NFs sem dados no faturamento
+              <span id="badgeNFsPendentes" class="badge-contador badge-alerta">0</span>
+            </span>
+            <svg id="iconeNFsPendentes" class="icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          </button>
+          <div id="corpoNFsPendentes" class="erro-corpo">
+            <div class="pendentes-topo">
+              <p class="ajuda-texto">Não foram encontradas nos relatórios de faturamento quando a carga foi criada. Preencha os dados manualmente na aba da carga e marque como resolvida. Histórico completo na aba <strong>NFs_Nao_Encontradas</strong>.</p>
+              <button type="button" id="btnCopiarNFsPendentes" class="btn-secundario btn-pequeno">Copiar lista</button>
+            </div>
+            <ul id="listaNFsPendentes" class="lista-pendentes"></ul>
+          </div>
+        </div>
+
         <!-- Container da Tabela -->
         <div class="table-container" id="containerTabela" style="display: none;">
           <table id="tabelaDados">

@@ -65,9 +65,18 @@ const CRUZ_CONFIG = {
   // Trava de segurança: número máximo de etapas por cruzamento
   MAX_ETAPAS: 150,
 
-  // E-mail com o resumo ao terminar (ou em caso de erro).
-  // '' = envia para a conta que executa o script. null = não envia.
-  EMAIL_AVISO: 'arthur.silva@kabum.com.br'
+  // Aba com os destinatários do e-mail de resumo (uma linha por e-mail; coluna "Ativo" Sim/Não).
+  // É criada automaticamente com os EMAILS_INICIAIS se ainda não existir.
+  NOME_ABA_EMAILS: 'Config_Emails',
+  EMAILS_INICIAIS: ['arthur.silva@kabum.com.br'],
+
+  // Aba permanente com as NFs que não estavam nos relatórios (para preenchimento manual)
+  NOME_ABA_PENDENTES: 'NFs_Nao_Encontradas',
+
+  // Colunas da carga usadas no resumo do e-mail
+  COLUNA_PEDIDO: 'Número do Pedido Faturado',
+  COLUNA_ETIQUETA: 'Mercadoria Código',
+  COLUNA_CUSTO: 'Custo Produto'
 };
 
 const CRUZ_ABA_ARQUIVOS = '_cruz_arquivos';
@@ -121,6 +130,7 @@ function iniciarCruzamentoCarga(dataISO, nfsEntrada) {
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     gravarNFsBase_(ss, nfs);
+    try { garantirAbaEmails_(ss); } catch (e) { console.warn('Aba de e-mails: ' + e.message); }
     apagarCachesCruzamento_(ss);
     removerGatilhos_();
 
@@ -367,11 +377,18 @@ function executarEtapaInterna_() {
     });
   }
 
+  const resumo = calcularResumoCarga_(montagem.matriz);
   const criada = _criarAbaCarga(job.nomeCarga, montagem.matriz, { comoTexto: true });
   finalizarLimpezaCruzamento_(ss);
+  try {
+    registrarNFsNaoEncontradas_(ss, criada.aba, montagem.naoEncontradas, job.usuario);
+  } catch (e) {
+    console.error('Não foi possível registar as NFs não encontradas: ' + e.message);
+  }
 
   const resultado = {
     aba: criada.aba,
+    resumo: resumo,
     itens: montagem.matriz.length - 1,
     encontradas: montagem.encontradas,
     totalNFs: notas.size,
@@ -386,13 +403,8 @@ function executarEtapaInterna_() {
     mensagem: `Carga ${criada.aba} criada com ${resultado.itens} itens.`
   });
 
-  notificar_('Concluído',
-    `Carga "${criada.aba}" criada com ${resultado.itens} itens.\n` +
-    `NFs encontradas: ${resultado.encontradas} de ${notas.size} (${arquivos.length} relatórios verificados` +
-    (etapa > 1 ? ` em ${etapa} etapas` : '') + ').' +
-    (resultado.naoEncontradas.length ? `\nNFs não encontradas (${resultado.naoEncontradas.length}): ${resultado.naoEncontradas.join(', ')}` : '') +
-    (avisos ? `\n${avisos} relatório(s) com aviso ou erro.` : ''),
-    true);
+  notificar_('Concluído', `Carga "${criada.aba}" criada com ${resultado.itens} itens.`, true);
+  enviarEmailConclusao_(ss, resultado, lerJobCruzamento_());
 }
 
 function falhar_(msg, extra) {
@@ -401,6 +413,7 @@ function falhar_(msg, extra) {
     status: 'erro', fase: 'erro', erro: msg, mensagem: msg, fim: new Date().toISOString()
   }, extra || {}));
   notificar_('Erro', msg, true);
+  enviarEmailErro_(SpreadsheetApp.getActiveSpreadsheet(), msg, lerJobCruzamento_());
 }
 
 // ==========================================
@@ -978,24 +991,287 @@ function salvarEstado_(estado) {
   PropertiesService.getScriptProperties().setProperty(CRUZ_PROP_ESTADO, JSON.stringify(estado));
 }
 
-/**
- * Mostra um aviso rápido na planilha (se estiver aberta) e, quando "final",
- * envia e-mail — execuções por gatilho não conseguem abrir janelas.
- */
+/** Mostra um aviso rápido na planilha, se estiver aberta. O e-mail tem motor próprio (abaixo). */
 function notificar_(titulo, mensagem, final) {
   console.log(`[${titulo}] ${mensagem}`);
   try {
     SpreadsheetApp.getActiveSpreadsheet().toast(mensagem, 'Cruzamento NF — ' + titulo, final ? 60 : 15);
   } catch (e) { /* sem planilha aberta */ }
+}
 
-  if (!final || CRUZ_CONFIG.EMAIL_AVISO === null) return;
+// ==========================================
+// RESUMO DA CARGA (pedidos, etiquetas, valor)
+// ==========================================
+/**
+ * Resumo da matriz da carga (linha 0 = cabeçalho):
+ *  - pedidos: contagem ÚNICA de "Número do Pedido Faturado" (coluna C)
+ *  - etiquetas: contagem de "Mercadoria Código" preenchida (coluna D)
+ *  - valorTotal: soma de "Custo Produto" (coluna F), que vem no formato americano (1,234.56)
+ */
+function calcularResumoCarga_(matriz) {
+  const cab = matriz[0].map(c => normalizarCabecalho_(c));
+  const idx = nome => cab.indexOf(normalizarCabecalho_(nome));
+  const iPed = idx(CRUZ_CONFIG.COLUNA_PEDIDO);
+  const iEtq = idx(CRUZ_CONFIG.COLUNA_ETIQUETA);
+  const iCusto = idx(CRUZ_CONFIG.COLUNA_CUSTO);
+
+  const pedidos = new Set();
+  let etiquetas = 0;
+  let centavos = 0;
+  let valoresInvalidos = 0;
+
+  for (let i = 1; i < matriz.length; i++) {
+    const l = matriz[i];
+    const ped = iPed !== -1 ? String(l[iPed] == null ? '' : l[iPed]).trim() : '';
+    if (ped) pedidos.add(ped);
+    if (iEtq !== -1 && String(l[iEtq] == null ? '' : l[iEtq]).trim()) etiquetas++;
+    if (iCusto !== -1) {
+      const bruto = String(l[iCusto] == null ? '' : l[iCusto]).trim();
+      if (!bruto) continue;
+      const v = converterValor_(bruto);
+      if (isNaN(v)) valoresInvalidos++; else centavos += Math.round(v * 100);
+    }
+  }
+  return { pedidos: pedidos.size, etiquetas: etiquetas, valorTotal: centavos / 100, valoresInvalidos: valoresInvalidos };
+}
+
+/**
+ * Converte um valor monetário em número. O relatório usa o formato americano
+ * (ponto decimal, vírgula de milhar: "1,234.56"); também aceita "1.234,56", "R$ 12,50" e "(10.00)".
+ */
+function converterValor_(v) {
+  if (typeof v === 'number') return v;
+  let s = String(v == null ? '' : v).trim();
+  if (!s) return 0;
+  const negativo = /^\(.*\)$/.test(s) || /^-/.test(s.replace(/^[^\d(-]+/, ''));
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return NaN;
+
+  const ponto = s.lastIndexOf('.');
+  const virgula = s.lastIndexOf(',');
+  if (ponto !== -1 && virgula !== -1) {
+    // O último separador é o decimal
+    s = ponto > virgula ? s.replace(/,/g, '') : s.replace(/\./g, '').replace(',', '.');
+  } else if (virgula !== -1) {
+    // Só vírgulas: "1,234" / "1,234,567" = milhar (americano); "12,5" / "12,50" = decimal
+    s = /^\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
+  } else if ((s.match(/\./g) || []).length > 1) {
+    s = s.replace(/\./g, ''); // "1.234.567" = milhar
+  }
+  const n = Number(s);
+  return isNaN(n) ? NaN : (negativo ? -n : n);
+}
+
+function formatarMoeda_(valor) {
+  const negativo = valor < 0;
+  const partes = Math.abs(valor).toFixed(2).split('.');
+  const inteiro = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (negativo ? '-' : '') + 'R$ ' + inteiro + ',' + partes[1];
+}
+
+function formatarNumero_(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+// ==========================================
+// NFs NÃO ENCONTRADAS (registo permanente)
+// ==========================================
+const CRUZ_CAB_PENDENTES = ['Carga', 'NF', 'Registada em', 'Registada por', 'Situação', 'Resolvida em', 'Resolvida por'];
+
+function obterAbaPendentes_(ss) {
+  let aba = ss.getSheetByName(CRUZ_CONFIG.NOME_ABA_PENDENTES);
+  if (!aba) {
+    aba = ss.insertSheet(CRUZ_CONFIG.NOME_ABA_PENDENTES);
+    aba.getRange(1, 1, 1, CRUZ_CAB_PENDENTES.length).setValues([CRUZ_CAB_PENDENTES]).setFontWeight('bold').setBackground('#f1f5f9');
+    aba.setFrozenRows(1);
+  }
+  return aba;
+}
+
+function dataHoraAgora_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+}
+
+/** Acrescenta as NFs sem dados no faturamento à aba permanente, como "Pendente". */
+function registrarNFsNaoEncontradas_(ss, nomeCarga, nfs, usuario) {
+  if (!nfs || !nfs.length) return 0;
+  const aba = obterAbaPendentes_(ss);
+  const quando = dataHoraAgora_();
+  const linhas = nfs.map(nf => [nomeCarga, String(nf), quando, usuario || '', 'Pendente', '', '']);
+  const ini = aba.getLastRow() + 1;
+  garantirTamanho_(aba, ini + linhas.length - 1, CRUZ_CAB_PENDENTES.length);
+  aba.getRange(ini, 1, linhas.length, CRUZ_CAB_PENDENTES.length).setNumberFormat('@').setValues(linhas);
+  return linhas.length;
+}
+
+function lerPendentes_(ss) {
+  const aba = ss.getSheetByName(CRUZ_CONFIG.NOME_ABA_PENDENTES);
+  if (!aba || aba.getLastRow() < 2) return { aba: aba, linhas: [] };
+  const dados = aba.getRange(2, 1, aba.getLastRow() - 1, CRUZ_CAB_PENDENTES.length).getDisplayValues();
+  return { aba: aba, linhas: dados.map((l, i) => ({ linha: i + 2, carga: l[0], nf: l[1], registadaEm: l[2], situacao: l[4] })) };
+}
+
+/** Web App: NFs ainda pendentes de uma carga. */
+function obterNFsPendentes(nomeCarga) {
   try {
-    const destino = CRUZ_CONFIG.EMAIL_AVISO || Session.getEffectiveUser().getEmail();
-    const url = SpreadsheetApp.getActiveSpreadsheet().getUrl();
-    MailApp.sendEmail(destino, `[Cruzamento NF] ${titulo}`, `${mensagem}\n\nPlanilha: ${url}`);
+    const alvo = String(nomeCarga || '').trim();
+    return lerPendentes_(SpreadsheetApp.getActiveSpreadsheet()).linhas
+      .filter(p => p.carga === alvo && p.situacao === 'Pendente')
+      .map(p => ({ nf: p.nf, registadaEm: p.registadaEm }));
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Web App: marca uma NF como resolvida (dados preenchidos manualmente) e devolve as restantes. */
+function marcarNFResolvida(nomeCarga, nf) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const { aba, linhas } = lerPendentes_(ss);
+  const alvo = linhas.find(p => p.carga === String(nomeCarga) && p.nf === String(nf) && p.situacao === 'Pendente');
+  if (aba && alvo) {
+    let usuario = '';
+    try { usuario = Session.getActiveUser().getEmail(); } catch (e) { /* sem acesso */ }
+    aba.getRange(alvo.linha, 5, 1, 3).setValues([['Resolvida', dataHoraAgora_(), usuario]]);
+  }
+  return obterNFsPendentes(nomeCarga);
+}
+
+// ==========================================
+// E-MAIL DE RESUMO (destinatários na aba Config_Emails)
+// ==========================================
+function garantirAbaEmails_(ss) {
+  let aba = ss.getSheetByName(CRUZ_CONFIG.NOME_ABA_EMAILS);
+  if (aba) return aba;
+  aba = ss.insertSheet(CRUZ_CONFIG.NOME_ABA_EMAILS);
+  const linhas = [['E-mail', 'Ativo (Sim/Não)', 'Nome', 'Observação']]
+    .concat(CRUZ_CONFIG.EMAILS_INICIAIS.map(e => [e, 'Sim', '', '']));
+  aba.getRange(1, 1, linhas.length, 4).setValues(linhas);
+  aba.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#f1f5f9');
+  aba.getRange(1, 1).setNote('Um e-mail por linha. Estes endereços recebem o resumo de cada carga criada pelo ' +
+    'Cruzamento de NFs. Escreva "Não" na coluna Ativo para suspender um endereço sem o apagar.');
+  aba.setFrozenRows(1);
+  return aba;
+}
+
+/** Destinatários ativos e válidos da aba Config_Emails (sem repetidos). */
+function lerDestinatarios_(ss) {
+  const aba = ss.getSheetByName(CRUZ_CONFIG.NOME_ABA_EMAILS);
+  if (!aba || aba.getLastRow() < 2) return [];
+  const vistos = new Set();
+  return aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues()
+    .filter(l => {
+      const email = String(l[0]).trim().toLowerCase();
+      const ativo = String(l[1]).trim().toLowerCase();
+      if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) return false;
+      if (/^(n|nao|não|false|falso|0|inativo)$/.test(ativo)) return false;
+      if (vistos.has(email)) return false;
+      vistos.add(email);
+      return true;
+    })
+    .map(l => String(l[0]).trim());
+}
+
+function enviarEmail_(ss, assunto, texto, html) {
+  let destinatarios = [];
+  try {
+    garantirAbaEmails_(ss);
+    destinatarios = lerDestinatarios_(ss);
+  } catch (e) {
+    console.error('Não foi possível ler a aba de e-mails: ' + e.message);
+  }
+  if (!destinatarios.length) {
+    console.log(`Nenhum destinatário ativo em "${CRUZ_CONFIG.NOME_ABA_EMAILS}": e-mail não enviado.`);
+    return 0;
+  }
+  try {
+    MailApp.sendEmail({ to: destinatarios.join(','), subject: assunto, body: texto, htmlBody: html, name: 'Controle de Insucessos' });
+    return destinatarios.length;
   } catch (e) {
     console.error('Não foi possível enviar o e-mail: ' + e.message);
+    return 0;
   }
+}
+
+function escaparHtmlEmail_(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function linkAba_(ss, nomeAba) {
+  let url = '';
+  try { url = ss.getUrl(); } catch (e) { return ''; }
+  try {
+    const aba = nomeAba ? ss.getSheetByName(nomeAba) : null;
+    if (aba) url += '#gid=' + aba.getSheetId();
+  } catch (e) { /* sem id */ }
+  return url;
+}
+
+function enviarEmailConclusao_(ss, r, job) {
+  const rs = r.resumo || { pedidos: 0, etiquetas: 0, valorTotal: 0, valoresInvalidos: 0 };
+  const quando = dataHoraAgora_();
+  const url = linkAba_(ss, r.aba);
+  const falta = r.naoEncontradas || [];
+  const assunto = `[Controle de Insucessos] Carga ${r.aba} criada — ${formatarNumero_(rs.pedidos)} pedidos · ` +
+    `${formatarNumero_(rs.etiquetas)} etiquetas · ${formatarMoeda_(rs.valorTotal)}`;
+
+  const texto = [
+    `Carga ${r.aba} criada pelo Cruzamento de NFs em ${quando}` + (job && job.usuario ? ` (iniciado por ${job.usuario})` : '') + '.',
+    '',
+    'RESUMO DA CARGA',
+    `Pedidos (Número do Pedido Faturado, únicos): ${formatarNumero_(rs.pedidos)}`,
+    `Etiquetas (Mercadoria Código): ${formatarNumero_(rs.etiquetas)}`,
+    `Valor total de devolução (Custo Produto): ${formatarMoeda_(rs.valorTotal)}`,
+    rs.valoresInvalidos ? `Atenção: ${rs.valoresInvalidos} valor(es) de custo não reconhecido(s) ficaram fora da soma.` : '',
+    '',
+    `NFs enviadas: ${r.totalNFs} · encontradas: ${r.encontradas} · não encontradas: ${falta.length}`,
+    falta.length ? `NFs não encontradas (preencher manualmente; registadas na aba ${CRUZ_CONFIG.NOME_ABA_PENDENTES}): ${falta.join(', ')}` : '',
+    `Relatórios de faturamento verificados: ${r.relatorios}` + (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : ''),
+    '',
+    url ? `Planilha: ${url}` : ''
+  ].filter((l, i, a) => l !== '' || (a[i - 1] !== '' && i > 0)).join('\n');
+
+  const cartao = (rotulo, valor) =>
+    `<td style="padding:14px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;width:33%">` +
+    `<div style="font-size:12px;color:#64748b">${rotulo}</div>` +
+    `<div style="font-size:22px;font-weight:700;color:#0f172a;margin-top:4px">${valor}</div></td>`;
+
+  const html =
+    `<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;max-width:640px">` +
+    `<h2 style="margin:0 0 4px;font-size:20px">Carga ${escaparHtmlEmail_(r.aba)} criada</h2>` +
+    `<p style="margin:0 0 16px;color:#64748b;font-size:13px">Cruzamento de NFs concluído em ${quando}` +
+    (job && job.usuario ? ` · iniciado por ${escaparHtmlEmail_(job.usuario)}` : '') + `</p>` +
+    `<table role="presentation" cellspacing="8" cellpadding="0" style="width:100%;margin:0 -8px 8px"><tr>` +
+    cartao('Pedidos (únicos)', formatarNumero_(rs.pedidos)) +
+    cartao('Etiquetas', formatarNumero_(rs.etiquetas)) +
+    cartao('Valor total de devolução', formatarMoeda_(rs.valorTotal)) +
+    `</tr></table>` +
+    (rs.valoresInvalidos ? `<p style="color:#b45309;font-size:13px">Atenção: ${rs.valoresInvalidos} valor(es) de custo não reconhecido(s) ficaram fora da soma.</p>` : '') +
+    `<p style="font-size:14px;margin:12px 0 4px">NFs enviadas: <b>${r.totalNFs}</b> · encontradas: <b>${r.encontradas}</b> · não encontradas: <b>${falta.length}</b></p>` +
+    (falta.length
+      ? `<div style="margin:8px 0;padding:12px 14px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:13px">` +
+        `<b>NFs não encontradas nos relatórios de faturamento</b> — preencher manualmente na aba da carga. ` +
+        `Ficam registadas na aba <b>${CRUZ_CONFIG.NOME_ABA_PENDENTES}</b>.<br><span style="font-family:monospace">${falta.map(escaparHtmlEmail_).join(', ')}</span></div>`
+      : '') +
+    `<p style="font-size:13px;color:#64748b">Relatórios de faturamento verificados: ${r.relatorios}` +
+    (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : '') + `</p>` +
+    (url ? `<p><a href="${escaparHtmlEmail_(url)}" style="display:inline-block;padding:10px 16px;background:#c2410c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">Abrir a carga na planilha</a></p>` : '') +
+    `</div>`;
+
+  return enviarEmail_(ss, assunto, texto, html);
+}
+
+function enviarEmailErro_(ss, msg, job) {
+  const carga = job && job.nomeCarga ? job.nomeCarga : '';
+  const falta = job && job.resultado && job.resultado.naoEncontradas ? job.resultado.naoEncontradas : [];
+  const url = linkAba_(ss, null);
+  const assunto = `[Controle de Insucessos] Erro no cruzamento${carga ? ' — carga ' + carga : ''}`;
+  const texto = `${msg}` + (falta.length ? `\n\nNFs não encontradas: ${falta.join(', ')}` : '') + (url ? `\n\nPlanilha: ${url}` : '');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;max-width:640px">` +
+    `<h2 style="margin:0 0 8px;font-size:20px;color:#b91c1c">Erro no cruzamento${carga ? ' — carga ' + escaparHtmlEmail_(carga) : ''}</h2>` +
+    `<p style="font-size:14px">${escaparHtmlEmail_(msg)}</p>` +
+    (falta.length ? `<p style="font-size:13px"><b>NFs não encontradas:</b> <span style="font-family:monospace">${falta.map(escaparHtmlEmail_).join(', ')}</span></p>` : '') +
+    (url ? `<p><a href="${escaparHtmlEmail_(url)}">Abrir a planilha</a></p>` : '') + `</div>`;
+  return enviarEmail_(ss, assunto, texto, html);
 }
 
 /**

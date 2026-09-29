@@ -895,6 +895,24 @@
   .cruz-nao-encontradas-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; color: var(--text-main); }
   .cruz-lista-nfs { max-height: 120px; overflow-y: auto; }
 
+  .cruz-resumo-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 4px; }
+  .cruz-numero { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--bg-card); border: 1px solid var(--ok-border); }
+  .cruz-numero span { font-size: 11px; color: var(--text-support); }
+  .cruz-numero strong { font-size: 17px; color: var(--text-main) !important; font-variant-numeric: tabular-nums; }
+
+  /* --- NFs sem dados no faturamento (painel da carga) --- */
+  .pendentes-container { padding: 0; overflow: hidden; border-color: var(--brand-accent); }
+  .badge-alerta { background-color: var(--brand-soft); color: var(--brand-accent); }
+  .pendentes-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 10px; }
+  .pendentes-topo .ajuda-texto { margin: 0; }
+  .lista-pendentes { list-style: none; margin: 10px 0 4px; padding: 0; max-height: 240px; overflow-y: auto; }
+  .lista-pendentes li {
+    display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-color); font-size: 13px;
+  }
+  .pendente-nf { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: var(--text-main); }
+  .pendente-data { color: var(--text-support); }
+  .lista-pendentes .btn-secundario { margin-left: auto; }
+
   .indicador-cruz {
     width: 8px; height: 8px; border-radius: 50%; margin-left: auto; flex-shrink: 0;
     background: var(--brand-accent); box-shadow: 0 0 0 3px var(--brand-soft);

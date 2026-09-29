@@ -325,6 +325,14 @@
 
       const linhas = [];
       if (r.aba) linhas.push(`<div class="cruz-resumo-principal">Carga <strong>${esc(r.aba)}</strong> criada com <strong>${r.itens}</strong> item(s).</div>`);
+      if (r.resumo) {
+        linhas.push(`
+          <div class="cruz-resumo-numeros">
+            <div class="cruz-numero"><span>Pedidos (únicos)</span><strong>${formatarNumero(r.resumo.pedidos)}</strong></div>
+            <div class="cruz-numero"><span>Etiquetas</span><strong>${formatarNumero(r.resumo.etiquetas)}</strong></div>
+            <div class="cruz-numero"><span>Valor de devolução</span><strong>${formatarMoeda(r.resumo.valorTotal)}</strong></div>
+          </div>`);
+      }
       linhas.push(`<div>NFs encontradas: <strong>${r.encontradas}</strong> de ${r.totalNFs} · ${r.relatorios} relatório(s) verificado(s)${r.etapas > 1 ? ` em ${r.etapas} etapas` : ''}.</div>`);
       if (r.linhasSemProduto) linhas.push(`<div>${r.linhasSemProduto} linha(s) sem mercadoria e sem pedido foram ignoradas.</div>`);
       if (r.avisosRelatorios) linhas.push(`<div>${r.avisosRelatorios} relatório(s) com aviso ou erro de leitura.</div>`);
@@ -332,7 +340,10 @@
 
       const falta = r.naoEncontradas || [];
       if (blocoNaoEncontradas) blocoNaoEncontradas.style.display = falta.length ? 'block' : 'none';
-      if (tituloNaoEncontradas) tituloNaoEncontradas.textContent = `NFs não encontradas nos relatórios (${falta.length})`;
+      if (tituloNaoEncontradas) {
+        tituloNaoEncontradas.textContent = `NFs não encontradas nos relatórios (${falta.length})` +
+          (r.aba ? ' · registadas na aba NFs_Nao_Encontradas' : '');
+      }
       if (listaNaoEncontradas) listaNaoEncontradas.innerHTML = falta.map(n => `<span class="nf-chip">${esc(n)}</span>`).join('');
     }
 
@@ -388,20 +399,116 @@
     if (btnCopiar) {
       btnCopiar.addEventListener('click', function() {
         const lista = (jobAtual && jobAtual.resultado && jobAtual.resultado.naoEncontradas) || [];
-        const texto = lista.join('\n');
-        const confirmar = () => { const t = btnCopiar.textContent; btnCopiar.textContent = 'Copiado'; setTimeout(() => btnCopiar.textContent = t, 1500); };
-        const alternativa = () => {
-          const aux = document.createElement('textarea');
-          aux.value = texto; aux.setAttribute('readonly', ''); aux.style.position = 'fixed'; aux.style.opacity = '0';
-          document.body.appendChild(aux); aux.select();
-          try { document.execCommand('copy'); confirmar(); } catch (e) {}
-          aux.remove();
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(texto).then(confirmar).catch(alternativa);
-        } else {
-          alternativa();
-        }
+        copiarTexto(lista.join('\n'), btnCopiar);
+      });
+    }
+
+    function copiarTexto(texto, botao) {
+      const confirmar = () => { const t = botao.textContent; botao.textContent = 'Copiado'; setTimeout(() => botao.textContent = t, 1500); };
+      const alternativa = () => {
+        const aux = document.createElement('textarea');
+        aux.value = texto; aux.setAttribute('readonly', ''); aux.style.position = 'fixed'; aux.style.opacity = '0';
+        document.body.appendChild(aux); aux.select();
+        try { document.execCommand('copy'); confirmar(); } catch (e) {}
+        aux.remove();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(texto).then(confirmar).catch(alternativa);
+      else alternativa();
+    }
+
+    // --------------------------------------------------------------------------
+    // Formatação (pt-BR)
+    // --------------------------------------------------------------------------
+    function formatarNumero(n) {
+      return String(n == null ? 0 : n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+    function formatarMoeda(v) {
+      const n = Number(v) || 0;
+      const partes = Math.abs(n).toFixed(2).split('.');
+      return (n < 0 ? '-' : '') + 'R$ ' + partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + partes[1];
+    }
+
+    // --------------------------------------------------------------------------
+    // Painel "NFs sem dados no faturamento" da carga aberta (aba NFs_Nao_Encontradas)
+    // --------------------------------------------------------------------------
+    const painelPendentes = el('containerNFsPendentes');
+    const listaPendentes = el('listaNFsPendentes');
+    const badgePendentes = el('badgeNFsPendentes');
+    const headerPendentes = el('headerNFsPendentes');
+    const corpoPendentes = el('corpoNFsPendentes');
+    const iconePendentes = el('iconeNFsPendentes');
+    const btnCopiarPendentes = el('btnCopiarNFsPendentes');
+    let cargaPendentes = '';
+    let nfsPendentes = [];
+
+    function renderizarPendentes(lista) {
+      nfsPendentes = lista || [];
+      if (!painelPendentes) return;
+      painelPendentes.style.display = nfsPendentes.length ? 'block' : 'none';
+      if (badgePendentes) badgePendentes.textContent = nfsPendentes.length;
+      if (listaPendentes) {
+        listaPendentes.innerHTML = nfsPendentes.map(p => `
+          <li>
+            <span class="pendente-nf">${esc(p.nf)}</span>
+            <span class="pendente-data">registada em ${esc(p.registadaEm)}</span>
+            <button type="button" class="btn-secundario btn-pequeno" data-resolver="${esc(p.nf)}">Marcar resolvida</button>
+          </li>`).join('');
+      }
+    }
+
+    function carregarPendentes(carga) {
+      cargaPendentes = carga || '';
+      renderizarPendentes([]);
+      if (!cargaPendentes) return;
+      google.script.run
+        .withSuccessHandler(function(lista) {
+          if (carga === cargaPendentes) renderizarPendentes(lista);
+        })
+        .obterNFsPendentes(cargaPendentes);
+    }
+
+    const btnCarregarPendentes = el('btnCarregar');
+    if (btnCarregarPendentes) {
+      btnCarregarPendentes.addEventListener('click', function() {
+        const inputAbas = el('selectAbas');
+        carregarPendentes(inputAbas ? inputAbas.value : '');
+      });
+    }
+    const btnVoltarPendentes = el('btnVoltarSelecao');
+    if (btnVoltarPendentes) btnVoltarPendentes.addEventListener('click', () => carregarPendentes(''));
+
+    if (headerPendentes && corpoPendentes) {
+      headerPendentes.addEventListener('click', function() {
+        const aberto = corpoPendentes.style.display !== 'none';
+        corpoPendentes.style.display = aberto ? 'none' : 'block';
+        headerPendentes.setAttribute('aria-expanded', String(!aberto));
+        if (iconePendentes) iconePendentes.style.transform = aberto ? 'rotate(180deg)' : 'rotate(0deg)';
+      });
+    }
+
+    if (listaPendentes) {
+      listaPendentes.addEventListener('click', function(e) {
+        const btn = e.target.closest('[data-resolver]');
+        if (!btn) return;
+        const nf = btn.getAttribute('data-resolver');
+        if (!confirm(`Marcar a NF ${nf} como resolvida? Confirme que os dados já foram preenchidos na aba da carga.`)) return;
+        btn.disabled = true;
+        btn.textContent = 'A gravar...';
+        const carga = cargaPendentes;
+        google.script.run
+          .withSuccessHandler(function(lista) { if (carga === cargaPendentes) renderizarPendentes(lista); })
+          .withFailureHandler(function(erro) {
+            btn.disabled = false;
+            btn.textContent = 'Marcar resolvida';
+            alert('Não foi possível gravar: ' + (erro && erro.message ? erro.message : erro));
+          })
+          .marcarNFResolvida(carga, nf);
+      });
+    }
+
+    if (btnCopiarPendentes) {
+      btnCopiarPendentes.addEventListener('click', function() {
+        copiarTexto(nfsPendentes.map(p => p.nf).join('\n'), btnCopiarPendentes);
       });
     }
 
