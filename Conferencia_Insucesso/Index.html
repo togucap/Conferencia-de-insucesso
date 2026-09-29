@@ -37,6 +37,7 @@
         <button type="button" id="btnAbrirModalUpload" class="sidebar-tool" title="Importar nova planilha de carga">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg>
           <span class="nav-text">Nova Carga</span>
+          <span id="indicadorCruzamento" class="indicador-cruz" title="Cruzamento de NFs em andamento" hidden></span>
         </button>
         <button type="button" id="btnAbrirModalUploadChegada" class="sidebar-tool" title="Importar Lista de Chegada manualmente (D-0)">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6h9M11 12h9M11 18h9"></path><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"></path></svg>
@@ -425,36 +426,103 @@
       </div>
     </div>
 
-    <!-- MODAL: Upload de Carga -->
+    <!-- MODAL: Nova Carga (Importar ficheiro | Cruzar NFs) -->
     <div id="modalUpload" class="modal-overlay modal-z3" style="display: none;">
-      <div class="modal-content card-container modal-formulario">
+      <div class="modal-content card-container modal-formulario modal-nova-carga">
         <div class="modal-header">
-          <h2 class="card-title">Upload de nova carga</h2>
+          <h2 class="card-title">Nova carga</h2>
           <button type="button" id="btnFecharModalUpload" class="btn-close" aria-label="Fechar">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="input-group campo-formulario">
+          <div class="abas-modal" role="tablist" aria-label="Como criar a carga">
+            <button type="button" role="tab" id="abaNovaCargaFicheiro" class="aba-modal ativa" aria-selected="true" aria-controls="painelNovaCargaFicheiro">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg>
+              Importar ficheiro
+            </button>
+            <button type="button" role="tab" id="abaNovaCargaNFs" class="aba-modal" aria-selected="false" aria-controls="painelNovaCargaNFs">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M7 12h10M12 7v10"></path></svg>
+              Cruzar NFs
+            </button>
+          </div>
+
+          <div class="input-group campo-formulario" id="grupoDataNovaCarga">
             <label for="dataNovaCarga">Data da carga (dará o nome à aba)</label>
             <input type="date" id="dataNovaCarga">
           </div>
-          <div class="input-group campo-formulario">
-            <label for="arquivoNovaCarga">Ficheiro (Excel ou CSV)</label>
-            <div id="dropZoneUpload" class="drop-zone">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-              </svg>
-              <p id="dropZoneText" class="drop-zone-texto">
-                Arraste e solte o ficheiro Excel aqui<br>ou <strong style="color: var(--emerald); cursor: pointer;">clique para procurar</strong>
-              </p>
-              <input type="file" id="arquivoNovaCarga" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
+
+          <!-- Opção 1: upload do ficheiro Carga_insucesso -->
+          <div id="painelNovaCargaFicheiro" role="tabpanel" aria-labelledby="abaNovaCargaFicheiro">
+            <div class="input-group campo-formulario">
+              <label for="arquivoNovaCarga">Ficheiro (Excel ou CSV)</label>
+              <div id="dropZoneUpload" class="drop-zone">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <p id="dropZoneText" class="drop-zone-texto">
+                  Arraste e solte o ficheiro Excel aqui<br>ou <strong style="color: var(--emerald); cursor: pointer;">clique para procurar</strong>
+                </p>
+                <input type="file" id="arquivoNovaCarga" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
+              </div>
+            </div>
+            <div id="msgUploadProgresso" class="msg-progresso" style="display: none;">A processar ficheiro...</div>
+            <div class="dialogo-botoes dialogo-botoes-direita">
+              <button type="button" id="btnCancelarUpload" class="btn-fantasma">Cancelar</button>
+              <button type="button" id="btnConfirmarUpload" class="btn-brand">Enviar carga</button>
             </div>
           </div>
-          <div id="msgUploadProgresso" class="msg-progresso" style="display: none;">A processar ficheiro...</div>
-          <div class="dialogo-botoes dialogo-botoes-direita">
-            <button type="button" id="btnCancelarUpload" class="btn-fantasma">Cancelar</button>
-            <button type="button" id="btnConfirmarUpload" class="btn-brand">Enviar carga</button>
+
+          <!-- Opção 2: cruzamento de NFs com os relatórios de faturamento -->
+          <div id="painelNovaCargaNFs" role="tabpanel" aria-labelledby="abaNovaCargaNFs" style="display: none;">
+            <div id="formCruzamento">
+              <div class="input-group campo-formulario">
+                <label for="nfsCruzamento">Números das NFs</label>
+                <textarea id="nfsCruzamento" rows="8" spellcheck="false" placeholder="Selecione as NFs no Excel, copie (Ctrl+C) e cole aqui (Ctrl+V).&#10;Uma por linha, por célula ou separadas por vírgula."></textarea>
+              </div>
+              <div id="resumoNFsCruzamento" class="resumo-nfs" aria-live="polite">Nenhuma NF reconhecida ainda.</div>
+              <p class="ajuda-texto">
+                As NFs são gravadas na aba <strong>NFs_Base</strong> e cruzadas com os relatórios de faturamento do Drive.
+                No fim é criada a aba da carga com a data escolhida e a <strong>NFs_Base</strong> é limpa para a próxima leva.
+              </p>
+              <div class="dialogo-botoes dialogo-botoes-direita">
+                <button type="button" id="btnCancelarCruzamentoModal" class="btn-fantasma">Cancelar</button>
+                <button type="button" id="btnIniciarCruzamento" class="btn-brand" disabled>Cruzar e criar carga</button>
+              </div>
+            </div>
+
+            <div id="progressoCruzamento" class="cruz-progresso" style="display: none;" aria-live="polite">
+              <div class="cruz-cabecalho">
+                <strong id="cruzTitulo">Cruzamento de NFs</strong>
+                <span id="cruzSubtitulo" class="text-support"></span>
+              </div>
+              <ol class="cruz-passos">
+                <li id="cruzPasso1" class="cruz-passo">NFs gravadas na aba NFs_Base</li>
+                <li id="cruzPasso2" class="cruz-passo">Leitura dos relatórios de faturamento <span id="cruzContagem" class="cruz-contagem"></span></li>
+                <li id="cruzPasso3" class="cruz-passo">Criação da aba da carga</li>
+                <li id="cruzPasso4" class="cruz-passo">Limpeza da NFs_Base</li>
+              </ol>
+              <div class="progress-bar-bg"><div class="progress-bar-fill" id="cruzBarra"></div></div>
+              <p id="cruzMensagem" class="cruz-mensagem"></p>
+
+              <div id="cruzResultado" class="cruz-resultado" style="display: none;">
+                <div id="cruzResumo" class="cruz-resumo"></div>
+                <div id="cruzNaoEncontradas" class="cruz-nao-encontradas" style="display: none;">
+                  <div class="cruz-nao-encontradas-topo">
+                    <span id="cruzNaoEncontradasTitulo">NFs não encontradas</span>
+                    <button type="button" id="btnCopiarNaoEncontradas" class="btn-secundario btn-pequeno">Copiar lista</button>
+                  </div>
+                  <div id="cruzListaNaoEncontradas" class="cruz-lista-nfs"></div>
+                </div>
+              </div>
+
+              <div class="dialogo-botoes dialogo-botoes-direita">
+                <button type="button" id="btnCancelarCruzamento" class="btn-fantasma">Cancelar cruzamento</button>
+                <button type="button" id="btnFecharCruzamento" class="btn-secundario">Fechar (continua em segundo plano)</button>
+                <button type="button" id="btnNovoCruzamento" class="btn-secundario" style="display: none;">Novo cruzamento</button>
+                <button type="button" id="btnAbrirCargaCruzada" class="btn-brand" style="display: none;">Abrir carga</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -522,6 +590,7 @@
     <?!= include('Script_Bloqueio'); ?>
     <?!= include('Script_Filtros'); ?>
     <?!= include('Script_Visual'); ?>
+    <?!= include('Script_Cruzamento'); ?>
     <?!= include('Script'); ?>
   </body>
 </html>

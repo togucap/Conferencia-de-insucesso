@@ -1,0 +1,413 @@
+<script>
+  // ============================================================================
+  // SCRIPT: NOVA CARGA POR CRUZAMENTO DE NFs
+  // Responsabilidade: modal "Nova carga › Cruzar NFs"
+  //  - Interpreta as NFs coladas do Excel (linhas, células, vírgulas, ponto e vírgula)
+  //  - Inicia o cruzamento (Cruzamento.gs › iniciarCruzamentoCarga)
+  //  - Conduz as etapas (processarEtapaCruzamento) e mostra o progresso
+  //  - No fim atualiza a lista de cargas e permite abrir a carga criada
+  // ============================================================================
+
+  (function() {
+    const el = (id) => document.getElementById(id);
+    const esc = (typeof escaparHtml === 'function') ? escaparHtml : (t => String(t == null ? '' : t));
+
+    const modal = el('modalUpload');
+    const abaFicheiro = el('abaNovaCargaFicheiro');
+    const abaNFs = el('abaNovaCargaNFs');
+    const painelFicheiro = el('painelNovaCargaFicheiro');
+    const painelNFs = el('painelNovaCargaNFs');
+    const grupoData = el('grupoDataNovaCarga');
+    const campoData = el('dataNovaCarga');
+
+    const form = el('formCruzamento');
+    const textarea = el('nfsCruzamento');
+    const resumo = el('resumoNFsCruzamento');
+    const btnIniciar = el('btnIniciarCruzamento');
+    const btnCancelarModal = el('btnCancelarCruzamentoModal');
+
+    const progresso = el('progressoCruzamento');
+    const titulo = el('cruzTitulo');
+    const subtitulo = el('cruzSubtitulo');
+    const contagem = el('cruzContagem');
+    const barra = el('cruzBarra');
+    const mensagem = el('cruzMensagem');
+    const passos = [el('cruzPasso1'), el('cruzPasso2'), el('cruzPasso3'), el('cruzPasso4')];
+    const blocoResultado = el('cruzResultado');
+    const blocoResumo = el('cruzResumo');
+    const blocoNaoEncontradas = el('cruzNaoEncontradas');
+    const tituloNaoEncontradas = el('cruzNaoEncontradasTitulo');
+    const listaNaoEncontradas = el('cruzListaNaoEncontradas');
+    const btnCopiar = el('btnCopiarNaoEncontradas');
+    const btnCancelarCruz = el('btnCancelarCruzamento');
+    const btnFechar = el('btnFecharCruzamento');
+    const btnNovo = el('btnNovoCruzamento');
+    const btnAbrirCarga = el('btnAbrirCargaCruzada');
+    const indicador = el('indicadorCruzamento');
+
+    let jobAtual = null;          // último estado recebido do servidor
+    let cicloAtivo = false;       // há um ciclo de etapas a correr neste navegador
+    let mostrarProgresso = false; // o painel de progresso está a ser mostrado no modal
+    let nfsReconhecidas = [];
+
+    // --------------------------------------------------------------------------
+    // Interpretação do texto colado (mesma regra do servidor: extrairNotas_)
+    // --------------------------------------------------------------------------
+    function interpretarNFs(texto) {
+      const tokens = String(texto || '').split(/[\s;,|]+/).filter(t => t !== '');
+      const vistos = new Set();
+      const nfs = [];
+      let duplicadas = 0;
+      let ignoradas = 0;
+      tokens.forEach(t => {
+        const n = t.trim().replace(/[.,]0+$/, '').replace(/\D/g, '').replace(/^0+/, '');
+        if (!n) { ignoradas++; return; }
+        if (vistos.has(n)) { duplicadas++; return; }
+        vistos.add(n);
+        nfs.push(n);
+      });
+      return { nfs, duplicadas, ignoradas };
+    }
+
+    function atualizarResumo() {
+      const r = interpretarNFs(textarea ? textarea.value : '');
+      nfsReconhecidas = r.nfs;
+      if (!resumo) return;
+      resumo.classList.remove('erro');
+      if (!r.nfs.length) {
+        resumo.innerHTML = r.ignoradas
+          ? `Nenhuma NF reconhecida. ${r.ignoradas} valor(es) sem números foram ignorados.`
+          : 'Nenhuma NF reconhecida ainda.';
+      } else {
+        const detalhes = [];
+        if (r.duplicadas) detalhes.push(`${r.duplicadas} repetida(s) removida(s)`);
+        if (r.ignoradas) detalhes.push(`${r.ignoradas} valor(es) sem números ignorado(s)`);
+        const amostra = r.nfs.slice(0, 12).map(n => `<span class="nf-chip">${esc(n)}</span>`).join('');
+        const resto = r.nfs.length > 12 ? `<span class="nf-chip nf-chip-mais">+${r.nfs.length - 12}</span>` : '';
+        resumo.innerHTML = `
+          <div class="resumo-nfs-linha"><strong>${r.nfs.length} NF(s) reconhecida(s)</strong>${detalhes.length ? ' · ' + detalhes.join(' · ') : ''}</div>
+          <div class="resumo-nfs-chips">${amostra}${resto}</div>`;
+      }
+      if (btnIniciar) btnIniciar.disabled = r.nfs.length === 0;
+    }
+
+    function mostrarErroFormulario(msg) {
+      if (!resumo) return;
+      resumo.classList.add('erro');
+      resumo.textContent = msg;
+    }
+
+    // --------------------------------------------------------------------------
+    // Abas do modal
+    // --------------------------------------------------------------------------
+    function mostrarAba(qual) {
+      const nfs = qual === 'nfs';
+      if (abaFicheiro) { abaFicheiro.classList.toggle('ativa', !nfs); abaFicheiro.setAttribute('aria-selected', String(!nfs)); }
+      if (abaNFs) { abaNFs.classList.toggle('ativa', nfs); abaNFs.setAttribute('aria-selected', String(nfs)); }
+      if (painelFicheiro) painelFicheiro.style.display = nfs ? 'none' : 'block';
+      if (painelNFs) painelNFs.style.display = nfs ? 'block' : 'none';
+      atualizarVisibilidadePaineis();
+      if (nfs && !mostrarProgresso && textarea) setTimeout(() => textarea.focus(), 0);
+    }
+
+    function atualizarVisibilidadePaineis() {
+      const abaNFsAtiva = abaNFs && abaNFs.classList.contains('ativa');
+      if (form) form.style.display = mostrarProgresso ? 'none' : 'block';
+      if (progresso) progresso.style.display = mostrarProgresso ? 'flex' : 'none';
+      // A data só é pedida antes de iniciar (no progresso já está no título)
+      if (grupoData) grupoData.style.display = (abaNFsAtiva && mostrarProgresso) ? 'none' : '';
+    }
+
+    if (abaFicheiro) abaFicheiro.addEventListener('click', () => mostrarAba('ficheiro'));
+    if (abaNFs) abaNFs.addEventListener('click', () => mostrarAba('nfs'));
+
+    // Ao abrir o modal: se houver um cruzamento a correr, mostra-o; senão começa em "Importar ficheiro"
+    const btnAbrirModal = el('btnAbrirModalUpload');
+    if (btnAbrirModal) {
+      btnAbrirModal.addEventListener('click', function() {
+        if (jobAtual && jobAtual.status === 'em_andamento') {
+          mostrarProgresso = true;
+          renderizar(jobAtual);
+          mostrarAba('nfs');
+        } else if (mostrarProgresso) {
+          mostrarAba('nfs'); // resultado ainda por ver
+        } else {
+          mostrarAba('ficheiro');
+        }
+      });
+    }
+
+    if (textarea) {
+      textarea.addEventListener('input', atualizarResumo);
+      // Depois de colar, mostra o resultado já interpretado
+      textarea.addEventListener('paste', () => setTimeout(atualizarResumo, 0));
+    }
+
+    if (btnCancelarModal) btnCancelarModal.addEventListener('click', () => { if (modal) modal.style.display = 'none'; });
+    if (btnFechar) btnFechar.addEventListener('click', () => { if (modal) modal.style.display = 'none'; });
+
+    // --------------------------------------------------------------------------
+    // Iniciar
+    // --------------------------------------------------------------------------
+    if (btnIniciar) {
+      btnIniciar.addEventListener('click', function() {
+        const data = campoData ? campoData.value : '';
+        if (!data) { mostrarErroFormulario('Selecione a data da carga antes de iniciar.'); if (campoData) campoData.focus(); return; }
+        atualizarResumo();
+        if (!nfsReconhecidas.length) { mostrarErroFormulario('Cole pelo menos uma NF.'); return; }
+
+        btnIniciar.disabled = true;
+        btnIniciar.textContent = 'A gravar NFs...';
+
+        google.script.run
+          .withSuccessHandler(function(resp) {
+            btnIniciar.textContent = 'Cruzar e criar carga';
+            btnIniciar.disabled = false;
+            if (resp && resp.sucesso) {
+              mostrarProgresso = true;
+              renderizar(resp.job);
+              atualizarVisibilidadePaineis();
+              iniciarCiclo();
+            } else if (resp && resp.job && resp.job.status === 'em_andamento') {
+              // Já havia um cruzamento a correr: mostra-o
+              mostrarProgresso = true;
+              renderizar(resp.job);
+              atualizarVisibilidadePaineis();
+              iniciarCiclo();
+            } else {
+              mostrarErroFormulario((resp && resp.erro) || 'Não foi possível iniciar o cruzamento.');
+            }
+          })
+          .withFailureHandler(function(erro) {
+            btnIniciar.textContent = 'Cruzar e criar carga';
+            btnIniciar.disabled = false;
+            mostrarErroFormulario('Falha de comunicação: ' + (erro && erro.message ? erro.message : erro));
+          })
+          .iniciarCruzamentoCarga(data, nfsReconhecidas);
+      });
+    }
+
+    // --------------------------------------------------------------------------
+    // Ciclo de etapas
+    // --------------------------------------------------------------------------
+    function iniciarCiclo() {
+      if (cicloAtivo) return;
+      cicloAtivo = true;
+      atualizarIndicador();
+      proximaEtapa(0);
+    }
+
+    function proximaEtapa(espera) {
+      setTimeout(function() {
+        google.script.run
+          .withSuccessHandler(function(st) {
+            renderizar(st);
+            if (st && st.status === 'em_andamento') {
+              proximaEtapa(st.ocupado ? 8000 : 400);
+            } else {
+              cicloAtivo = false;
+              atualizarIndicador();
+              aoTerminar(st);
+            }
+          })
+          .withFailureHandler(function(erro) {
+            // Pode ser um limite de tempo/rede: o gatilho no servidor continua; tentamos de novo
+            if (mensagem) {
+              mensagem.classList.add('erro');
+              mensagem.textContent = 'Falha de comunicação (' + (erro && erro.message ? erro.message : erro) + '). A tentar novamente em 15 s...';
+            }
+            proximaEtapa(15000);
+          })
+          .processarEtapaCruzamento();
+      }, espera);
+    }
+
+    function aoTerminar(st) {
+      if (!st) return;
+      if (st.status === 'concluido') {
+        google.script.run.withSuccessHandler(function(abas) {
+          if (typeof preencherSelectAbas === 'function') preencherSelectAbas(abas);
+        }).getAbasPlanilha();
+        if (typeof limparCacheDashboard === 'function') limparCacheDashboard();
+        const statusMsg = el('statusMensagem');
+        if (statusMsg && modal && modal.style.display === 'none' && st.resultado) {
+          statusMsg.textContent = `Cruzamento concluído: carga ${st.resultado.aba} criada com ${st.resultado.itens} itens.`;
+        }
+      }
+    }
+
+    function atualizarIndicador() {
+      if (!indicador) return;
+      const ativo = cicloAtivo || (jobAtual && jobAtual.status === 'em_andamento');
+      indicador.hidden = !ativo;
+    }
+
+    // --------------------------------------------------------------------------
+    // Renderização do estado
+    // --------------------------------------------------------------------------
+    function marcarPassos(estados) {
+      passos.forEach((p, i) => {
+        if (!p) return;
+        p.classList.remove('feito', 'ativo', 'erro');
+        if (estados[i]) p.classList.add(estados[i]);
+      });
+    }
+
+    function renderizar(st) {
+      if (!st) return;
+      jobAtual = st;
+      atualizarIndicador();
+
+      if (titulo) titulo.textContent = `Carga ${st.nomeCarga || ''}`;
+      if (subtitulo) {
+        let hora = '';
+        try { hora = st.inicio ? new Date(st.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''; } catch (e) {}
+        subtitulo.textContent = `${st.totalNFs || 0} NF(s)` + (hora ? ` · iniciado às ${hora}` : '') + (st.usuario ? ` por ${st.usuario}` : '');
+      }
+
+      const total = st.relatoriosTotal || 0;
+      const feitos = st.relatoriosFeitos || 0;
+      if (contagem) contagem.textContent = total ? `(${feitos} de ${total})` : '';
+
+      let pct = 5;
+      if (st.fase === 'lendo') pct = 10 + (total ? Math.round(80 * feitos / total) : 0);
+      if (st.fase === 'montando') pct = 92;
+      if (st.status === 'concluido') pct = 100;
+      if (barra) {
+        barra.style.width = pct + '%';
+        barra.style.backgroundColor = st.status === 'erro' ? 'var(--red-alert)' : (st.status === 'concluido' ? 'var(--emerald)' : '');
+      }
+
+      if (st.status === 'concluido') marcarPassos(['feito', 'feito', 'feito', 'feito']);
+      else if (st.status === 'erro' || st.status === 'cancelado') {
+        const falhaEm = st.fase === 'montando' ? 2 : (total ? 1 : 0);
+        marcarPassos(passos.map((_, i) => i < falhaEm ? 'feito' : (i === falhaEm ? 'erro' : '')));
+      }
+      else if (st.fase === 'montando') marcarPassos(['feito', 'feito', 'ativo', '']);
+      else if (st.fase === 'lendo') marcarPassos(['feito', 'ativo', '', '']);
+      else marcarPassos(['ativo', '', '', '']);
+
+      if (mensagem) {
+        mensagem.classList.toggle('erro', st.status === 'erro');
+        // Concluído: o quadro de resultado já diz tudo
+        mensagem.textContent = st.status === 'concluido' ? ''
+          : (st.status === 'em_andamento' && st.ocupado
+              ? (st.mensagem || '') + ' (etapa a correr no servidor...)'
+              : (st.mensagem || ''));
+        mensagem.style.display = mensagem.textContent ? '' : 'none';
+      }
+
+      const terminado = st.status !== 'em_andamento';
+      if (btnCancelarCruz) btnCancelarCruz.style.display = terminado ? 'none' : '';
+      if (btnFechar) btnFechar.style.display = terminado ? 'none' : '';
+      if (btnNovo) btnNovo.style.display = terminado ? '' : 'none';
+      if (btnAbrirCarga) btnAbrirCarga.style.display = (st.status === 'concluido' && st.resultado && st.resultado.aba) ? '' : 'none';
+
+      renderizarResultado(st);
+    }
+
+    function renderizarResultado(st) {
+      const r = st.resultado;
+      if (!blocoResultado) return;
+      if (!r) { blocoResultado.style.display = 'none'; return; }
+      blocoResultado.style.display = 'block';
+
+      const linhas = [];
+      if (r.aba) linhas.push(`<div class="cruz-resumo-principal">Carga <strong>${esc(r.aba)}</strong> criada com <strong>${r.itens}</strong> item(s).</div>`);
+      linhas.push(`<div>NFs encontradas: <strong>${r.encontradas}</strong> de ${r.totalNFs} · ${r.relatorios} relatório(s) verificado(s)${r.etapas > 1 ? ` em ${r.etapas} etapas` : ''}.</div>`);
+      if (r.linhasSemProduto) linhas.push(`<div>${r.linhasSemProduto} linha(s) sem mercadoria e sem pedido foram ignoradas.</div>`);
+      if (r.avisosRelatorios) linhas.push(`<div>${r.avisosRelatorios} relatório(s) com aviso ou erro de leitura.</div>`);
+      if (blocoResumo) blocoResumo.innerHTML = linhas.join('');
+
+      const falta = r.naoEncontradas || [];
+      if (blocoNaoEncontradas) blocoNaoEncontradas.style.display = falta.length ? 'block' : 'none';
+      if (tituloNaoEncontradas) tituloNaoEncontradas.textContent = `NFs não encontradas nos relatórios (${falta.length})`;
+      if (listaNaoEncontradas) listaNaoEncontradas.innerHTML = falta.map(n => `<span class="nf-chip">${esc(n)}</span>`).join('');
+    }
+
+    // --------------------------------------------------------------------------
+    // Ações
+    // --------------------------------------------------------------------------
+    if (btnCancelarCruz) {
+      btnCancelarCruz.addEventListener('click', function() {
+        if (!confirm('Cancelar o cruzamento em andamento? A aba NFs_Base será limpa e a carga não será criada.')) return;
+        btnCancelarCruz.disabled = true;
+        google.script.run
+          .withSuccessHandler(function(st) { btnCancelarCruz.disabled = false; renderizar(st); })
+          .withFailureHandler(function(erro) {
+            btnCancelarCruz.disabled = false;
+            if (mensagem) { mensagem.classList.add('erro'); mensagem.textContent = 'Não foi possível cancelar: ' + (erro && erro.message ? erro.message : erro); }
+          })
+          .cancelarCruzamento();
+      });
+    }
+
+    if (btnNovo) {
+      btnNovo.addEventListener('click', function() {
+        mostrarProgresso = false;
+        if (textarea) textarea.value = '';
+        atualizarResumo();
+        atualizarVisibilidadePaineis();
+        if (textarea) textarea.focus();
+      });
+    }
+
+    if (btnAbrirCarga) {
+      btnAbrirCarga.addEventListener('click', function() {
+        const aba = jobAtual && jobAtual.resultado ? jobAtual.resultado.aba : '';
+        if (!aba) return;
+        mostrarProgresso = false;
+        if (textarea) textarea.value = '';
+        atualizarResumo();
+        atualizarVisibilidadePaineis();
+        if (modal) modal.style.display = 'none';
+
+        const navAuditoria = document.querySelector('.nav-item[data-target="view-auditoria"]');
+        if (navAuditoria && !navAuditoria.classList.contains('active')) navAuditoria.click();
+
+        const inputAbas = el('selectAbas');
+        const label = el('labelCargaSelecionada');
+        const btnCarregarLocal = el('btnCarregar');
+        if (inputAbas) { inputAbas.value = aba; inputAbas.dataset.finalizada = 'false'; }
+        if (label) label.innerHTML = `${esc(aba)} <span style="color: var(--brand-accent); font-size: 12px; margin-left: 8px;">(Em Aberto)</span>`;
+        if (btnCarregarLocal) { btnCarregarLocal.disabled = false; btnCarregarLocal.click(); }
+      });
+    }
+
+    if (btnCopiar) {
+      btnCopiar.addEventListener('click', function() {
+        const lista = (jobAtual && jobAtual.resultado && jobAtual.resultado.naoEncontradas) || [];
+        const texto = lista.join('\n');
+        const confirmar = () => { const t = btnCopiar.textContent; btnCopiar.textContent = 'Copiado'; setTimeout(() => btnCopiar.textContent = t, 1500); };
+        const alternativa = () => {
+          const aux = document.createElement('textarea');
+          aux.value = texto; aux.setAttribute('readonly', ''); aux.style.position = 'fixed'; aux.style.opacity = '0';
+          document.body.appendChild(aux); aux.select();
+          try { document.execCommand('copy'); confirmar(); } catch (e) {}
+          aux.remove();
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(texto).then(confirmar).catch(alternativa);
+        } else {
+          alternativa();
+        }
+      });
+    }
+
+    // --------------------------------------------------------------------------
+    // Ao carregar a página: retoma um cruzamento que esteja em andamento
+    // --------------------------------------------------------------------------
+    document.addEventListener('DOMContentLoaded', function() {
+      google.script.run
+        .withSuccessHandler(function(st) {
+          if (st && st.status === 'em_andamento') {
+            jobAtual = st;
+            iniciarCiclo();
+          }
+        })
+        .obterStatusCruzamento();
+    });
+
+    atualizarResumo();
+  })();
+</script>

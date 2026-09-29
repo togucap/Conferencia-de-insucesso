@@ -243,6 +243,23 @@ function uploadNovaCarga(nomeAba, matrizDadosInput) {
   try {
     // Tratamento anti-crash para receber Strings JSON pesadas do Javascript do cliente
     const matrizDados = typeof matrizDadosInput === 'string' ? JSON.parse(matrizDadosInput) : matrizDadosInput;
+    return _criarAbaCarga(nomeAba, matrizDados);
+  } catch (e) {
+    return { erro: "Erro ao importar: " + e.message };
+  }
+}
+
+/**
+ * Cria a aba de uma carga a partir de uma matriz (linha 0 = cabeçalho).
+ * Usada pelo upload de ficheiro (uploadNovaCarga) e pelo Cruzamento de NFs (Cruzamento.gs).
+ * - Se a aba já existir, cria "<nome> V2", "V3"...
+ * - Injeta a coluna "Conferencia MSPC" a partir do relatório "Monte o Seu".
+ * opcoes.comoTexto: grava as células como texto puro (preserva zeros à esquerda).
+ * Lança exceção em caso de erro.
+ */
+function _criarAbaCarga(nomeAba, matrizDados, opcoes) {
+    opcoes = opcoes || {};
+    if (!matrizDados || !matrizDados.length || !matrizDados[0].length) throw new Error("A carga está vazia.");
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let aba = ss.getSheetByName(nomeAba);
     
@@ -280,14 +297,13 @@ function uploadNovaCarga(nomeAba, matrizDadosInput) {
     // ========================================================================
     
     aba = ss.insertSheet(nomeAba);
-    aba.getRange(1, 1, matrizDados.length, matrizDados[0].length).setValues(matrizDados);
+    const intervalo = aba.getRange(1, 1, matrizDados.length, matrizDados[0].length);
+    if (opcoes.comoTexto) intervalo.setNumberFormat('@');
+    intervalo.setValues(matrizDados);
     aba.getRange(1, 1, 1, matrizDados[0].length).setFontWeight("bold").setBackground("#f1f5f9");
     aba.setFrozenRows(1);
-    
+
     return { sucesso: true, aba: nomeAba };
-  } catch (e) {
-    return { erro: "Erro ao importar: " + e.message };
-  }
 }
 
 function aplicarRecusasEmMassa(nomeAba, tipoBusca, arrayValores) {

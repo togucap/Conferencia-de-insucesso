@@ -808,6 +808,96 @@
   .drop-zone-texto { margin: 0; font-size: 14px; color: var(--text-support); }
 
   /* ============================================================================
+     NOVA CARGA: ABAS DO MODAL E CRUZAMENTO DE NFs
+     ============================================================================ */
+  .modal-nova-carga { max-width: 580px; }
+
+  .abas-modal {
+    display: flex; padding: 3px; margin-bottom: 18px;
+    background: var(--bg-subtle); border: 1px solid var(--border-color); border-radius: 9px;
+  }
+  .aba-modal {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 36px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--text-support); font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+  .aba-modal .icon { width: 16px; height: 16px; }
+  .aba-modal:hover { color: var(--text-main); }
+  .aba-modal.ativa { background: var(--bg-card); color: var(--text-main); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+  #nfsCruzamento { min-height: 150px; font-size: 14px; line-height: 1.5; }
+
+  .resumo-nfs {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 12px; margin: -6px 0 14px; border-radius: 8px;
+    background: var(--bg-subtle); border: 1px solid var(--border-color);
+    font-size: 13px; color: var(--text-support);
+  }
+  .resumo-nfs strong { color: var(--text-main); }
+  .resumo-nfs.erro { color: var(--red-alert); border-color: var(--stop-border); background: var(--red-soft); }
+  .resumo-nfs-chips, .cruz-lista-nfs { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .nf-chip {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 5px;
+    background: var(--bg-elevated); color: var(--text-main);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500;
+  }
+  .nf-chip-mais { color: var(--text-support); font-family: inherit; }
+
+  .ajuda-texto { margin: 0 0 18px; font-size: 13px; line-height: 1.5; color: var(--text-support); }
+  .ajuda-texto strong { color: var(--text-main); font-weight: 600; }
+
+  .cruz-progresso { display: flex; flex-direction: column; gap: 14px; }
+  .cruz-cabecalho { display: flex; flex-direction: column; gap: 2px; }
+  .cruz-cabecalho strong { font-size: 18px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+
+  .cruz-passos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; counter-reset: passo; }
+  .cruz-passo {
+    display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-support);
+    counter-increment: passo;
+  }
+  .cruz-passo::before {
+    content: counter(passo); flex-shrink: 0;
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    background: var(--bg-elevated); color: var(--text-support);
+  }
+  .cruz-passo.ativo { color: var(--text-main); font-weight: 600; }
+  .cruz-passo.ativo::before { background: var(--brand-accent); color: var(--on-brand); animation: pulsar 1.4s ease-in-out infinite; }
+  .cruz-passo.feito { color: var(--text-main); }
+  .cruz-passo.feito::before { content: "✓"; background: var(--emerald-soft); color: var(--emerald); }
+  .cruz-passo.erro { color: var(--red-alert); font-weight: 600; }
+  .cruz-passo.erro::before { content: "!"; background: var(--red-soft); color: var(--red-alert); }
+  .cruz-contagem { font-weight: 500; color: var(--text-support); font-variant-numeric: tabular-nums; }
+  @keyframes pulsar { 50% { opacity: 0.55; } }
+
+  .cruz-mensagem { margin: 0; font-size: 13px; color: var(--text-support); }
+  .cruz-mensagem.erro { color: var(--red-alert); font-weight: 600; }
+
+  .cruz-resultado { display: flex; flex-direction: column; gap: 12px; }
+  .cruz-resumo {
+    display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px;
+    background: var(--ok-bg); border: 1px solid var(--ok-border); color: var(--ok-sub); font-size: 13px;
+  }
+  .cruz-resumo strong { color: var(--ok-text); }
+  .cruz-resumo-principal { font-size: 15px; color: var(--text-main); }
+  .cruz-nao-encontradas {
+    display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 10px;
+    background: var(--bg-subtle); border: 1px solid var(--border-color);
+  }
+  .cruz-nao-encontradas-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; color: var(--text-main); }
+  .cruz-lista-nfs { max-height: 120px; overflow-y: auto; }
+
+  .indicador-cruz {
+    width: 8px; height: 8px; border-radius: 50%; margin-left: auto; flex-shrink: 0;
+    background: var(--brand-accent); box-shadow: 0 0 0 3px var(--brand-soft);
+    animation: pulsar 1.4s ease-in-out infinite;
+  }
+  .indicador-cruz[hidden] { display: none; }
+
+  /* ============================================================================
      PAINEL GERENCIAL — FILTROS DROPDOWN
      ============================================================================ */
   .custom-dropdown { position: relative; font-family: inherit; }
@@ -899,6 +989,8 @@
     .sidebar-header { padding: 0; }
     .nav-item, .sidebar-tool, .btn-planilha { justify-content: center; width: 44px; height: 44px; padding: 0; margin: 0; }
     .sidebar-footer { padding: 12px 0 0; align-items: center; }
+    .sidebar-tool { position: relative; }
+    .indicador-cruz { position: absolute; top: 8px; right: 8px; margin: 0; }
     .main-content { padding: 18px 18px 32px; }
     .bipar-grid { grid-template-columns: 1fr; }
     .campo-busca { margin-left: 0; width: 100%; }
