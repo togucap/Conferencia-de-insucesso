@@ -41,6 +41,10 @@
     --div-bg: #1d1631;      --div-border: #5b3fa0;    --div-text: #d2bfff;    --div-sub: #c1b3de;
     --rep-bg: #1b2230;      --rep-border: #2f3a4b;    --rep-text: #e6edf3;    --rep-sub: #9aa6b2;
 
+    /* Modo recusa (avaria) */
+    --recusa: #ff6b8b;      --recusa-soft: rgba(255, 107, 139, 0.14);  --recusa-forte: #be123c;
+    --rec-bg: #2b0f18;      --rec-border: #be123c;    --rec-text: #ff9bb0;    --rec-sub: #f0b6c3;
+
     --shadow-pop: 0 12px 32px -8px rgba(0, 0, 0, 0.55);
     --scrollbar-bg: #0d1117;
     --scrollbar-thumb: #2f3a4b;
@@ -81,6 +85,10 @@
     --stop-bg: #fff0ee;     --stop-border: #f3a8a0;   --stop-text: #a40e26;   --stop-sub: #7d3a37;
     --div-bg: #f6f1ff;      --div-border: #c8b3f3;    --div-text: #6639ba;    --div-sub: #5b4a7d;
     --rep-bg: #f3f5f8;      --rep-border: #dfe3e8;    --rep-text: #0f172a;    --rep-sub: #57606a;
+
+    /* Modo recusa (avaria) */
+    --recusa: #be123c;      --recusa-soft: #ffe4ea;   --recusa-forte: #be123c;
+    --rec-bg: #fff0f3;      --rec-border: #f19bb0;    --rec-text: #9f1239;    --rec-sub: #7a2a3d;
 
     --shadow-pop: 0 12px 32px -8px rgba(15, 23, 42, 0.18);
     --scrollbar-bg: #f6f7f9;
@@ -123,6 +131,7 @@
   .cor-info { color: var(--blue) !important; }
   .cor-brand { color: var(--brand-accent) !important; }
   .cor-violeta { color: var(--violet) !important; }
+  .cor-recusa { color: var(--recusa) !important; }
 
   :focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
 
@@ -532,6 +541,9 @@
   .bipe-ok { background: var(--ok-bg); border-color: var(--ok-border); --bipe-texto: var(--ok-text); --bipe-sub: var(--ok-sub); }
   .bipe-bloqueio { background: var(--stop-bg); border-color: var(--stop-border); --bipe-texto: var(--stop-text); --bipe-sub: var(--stop-sub); }
   .bipe-divergencia { background: var(--div-bg); border-color: var(--div-border); --bipe-texto: var(--div-text); --bipe-sub: var(--div-sub); }
+  .bipe-recusa { background: var(--rec-bg); border-color: var(--rec-border); border-width: 2px; --bipe-texto: var(--rec-text); --bipe-sub: var(--rec-sub); }
+  .bipe-recusa .bipe-titulo { font-size: 26px; letter-spacing: 0.02em; }
+  .bipe-recusa .bipe-rodape { border-top-color: var(--rec-border); }
   .bipe-repetido, .bipe-invalido { background: var(--rep-bg); border-color: var(--rep-border); --bipe-texto: var(--rep-text); --bipe-sub: var(--rep-sub); }
 
   .bipe-topo { display: flex; align-items: center; gap: 14px; }
@@ -593,6 +605,7 @@
   .st-recusar { color: var(--red-alert); background: var(--red-soft); }
   .st-divergencia { color: var(--violet); background: var(--violet-soft); }
   .st-repetido { color: var(--text-support); background: var(--neutral-soft); }
+  .st-recusa-manual { color: var(--recusa); background: var(--recusa-soft); }
 
   /* ============================================================================
      DIVERGÊNCIAS (FORA DA CARGA)
@@ -652,6 +665,7 @@
   .linha-conferida { background-color: transparent !important; }
   .linha-conferida td { color: var(--text-support); }
   .linha-recusar td { color: var(--red-alert); }
+  .linha-conferida.linha-recusada-manual td { color: var(--recusa); }
 
   /* Cabeçalho de grupo para pedidos múltiplos */
   tr.linha-grupo th {
@@ -921,6 +935,73 @@
   .indicador-cruz[hidden] { display: none; }
 
   /* ============================================================================
+     MODO RECUSA (AVARIA)
+     ============================================================================ */
+  .modo-recusa-barra {
+    display: flex; align-items: center; margin-bottom: 16px; padding: 12px 16px;
+    background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px;
+  }
+  .modo-recusa-toggle {
+    display: flex; align-items: center; gap: 14px; margin: 0; cursor: pointer; position: relative;
+    font-size: 14px; letter-spacing: 0; color: var(--text-main);
+  }
+  .modo-recusa-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .modo-recusa-trilho {
+    position: relative; flex-shrink: 0; width: 56px; height: 30px; border-radius: 15px;
+    background: var(--border-strong); transition: background-color 0.2s;
+  }
+  .modo-recusa-bola {
+    position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+    background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 0.2s;
+  }
+  .modo-recusa-toggle input:checked + .modo-recusa-trilho { background: var(--recusa-forte); }
+  .modo-recusa-toggle input:checked + .modo-recusa-trilho .modo-recusa-bola { transform: translateX(26px); }
+  .modo-recusa-toggle:has(input:focus-visible) .modo-recusa-trilho { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
+  .modo-recusa-rotulo { display: flex; flex-direction: column; gap: 2px; }
+  .modo-recusa-rotulo strong { font-size: 15px; }
+  .modo-recusa-rotulo span { font-size: 13px; color: var(--text-support); font-weight: 500; }
+
+  /* Faixa fixa no topo */
+  .banner-modo-recusa {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 950;
+    display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+    color: #ffffff; font-size: 15px;
+    background: repeating-linear-gradient(135deg, #be123c 0 22px, #9f1239 22px 44px);
+    box-shadow: 0 4px 16px rgba(190, 18, 60, 0.45);
+    animation: pulsar-recusa 1.6s ease-in-out infinite;
+  }
+  .banner-modo-recusa[hidden] { display: none; }
+  .banner-modo-recusa .icon { width: 22px; height: 22px; stroke-width: 2.2; }
+  .banner-modo-recusa strong { font-size: 16px; letter-spacing: 0.06em; }
+  .banner-modo-recusa-texto { font-weight: 500; }
+  .banner-modo-recusa-botao {
+    margin-left: auto; height: 34px; padding: 0 16px; border-radius: 8px; cursor: pointer;
+    background: #ffffff; color: #9f1239; border: 0; font-size: 14px; font-weight: 700;
+  }
+  .banner-modo-recusa-botao:hover { background: #ffe4ea; }
+
+  /* Moldura pulsante em volta de todo o ecrã + fundo com riscas */
+  body.modo-recusa-ativo::after {
+    content: ""; position: fixed; inset: 0; z-index: 940; pointer-events: none;
+    border: 6px solid #be123c; animation: pulsar-recusa 1.6s ease-in-out infinite;
+  }
+  body.modo-recusa-ativo .sidebar { padding-top: 72px; }
+  body.modo-recusa-ativo .main-content {
+    padding-top: 72px;
+    background-image: repeating-linear-gradient(135deg, var(--recusa-soft) 0 26px, transparent 26px 52px);
+  }
+  body.modo-recusa-ativo .modo-recusa-barra { background: var(--rec-bg); border: 2px solid var(--recusa-forte); }
+  body.modo-recusa-ativo .modo-recusa-rotulo span { color: var(--rec-text); font-weight: 700; }
+  body.modo-recusa-ativo .campo-bipe { border-color: var(--recusa-forte); background: var(--rec-bg); box-shadow: 0 0 0 4px var(--recusa-soft); }
+  body.modo-recusa-ativo .campo-bipe .icon { color: var(--recusa); }
+  body.modo-recusa-ativo .bipar-entrada label { color: var(--recusa); }
+
+  @keyframes pulsar-recusa { 50% { opacity: 0.72; } }
+  @media (prefers-reduced-motion: reduce) {
+    .banner-modo-recusa, body.modo-recusa-ativo::after { animation: none; }
+  }
+
+  /* ============================================================================
      PAINEL GERENCIAL — FILTROS DROPDOWN
      ============================================================================ */
   .custom-dropdown { position: relative; font-family: inherit; }
@@ -1020,6 +1101,7 @@
   }
 
   @media (max-width: 640px) {
+    .banner-modo-recusa-texto { display: none; }
     .kpi-strip { grid-template-columns: 1fr; }
     .kpi-cell-acoes { flex-wrap: wrap; }
     .kpi-cell-acoes .btn-brand, .kpi-cell-acoes .btn-secundario { flex: 1 1 140px; }

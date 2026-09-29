@@ -50,6 +50,7 @@
              const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
              const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (statusOriginal === "Conferido");
              const isRecusado = recusasInterceptadas.has(merc) || statusOriginal === "Bloqueado";
+             const isRecusaManual = trCorrespondente ? trCorrespondente.classList.contains('linha-recusada-manual') : (statusOriginal === "Recusado Manualmente");
              const isDivergencia = statusOriginal.includes("Divergência") || statusOriginal.includes("Não Encontrado");
              const isSistemico = listaChegadaSet.has(chaveCheck);
              
@@ -72,6 +73,10 @@
                  statusTexto = "Bloqueado";
                  categoria = "Recusado";
                  veredito = "Bloqueio Intencional";
+             } else if (isRecusaManual) {
+                 statusTexto = "Recusado Manualmente";
+                 categoria = "Recusado Manualmente (Avaria)";
+                 veredito = "Recusa manual por avaria";
              } else if (isConferido) {
                  statusTexto = "Conferido";
                  if (totalPed === 1) {

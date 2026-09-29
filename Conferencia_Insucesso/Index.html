@@ -12,6 +12,14 @@
   </head>
   <body>
 
+    <!-- Faixa de alerta do modo recusa (avaria): fica visível em qualquer ecrã enquanto estiver ligado -->
+    <div id="bannerModoRecusa" class="banner-modo-recusa" role="alert" hidden>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"></path><path d="m9 9 6 6M15 9l-6 6"></path></svg>
+      <strong>MODO RECUSA ATIVO</strong>
+      <span class="banner-modo-recusa-texto">Cada volume bipado será registado como RECUSADO MANUALMENTE (avaria).</span>
+      <button type="button" id="btnDesligarModoRecusa" class="banner-modo-recusa-botao">Desligar</button>
+    </div>
+
     <aside class="sidebar">
       <div class="sidebar-header">
         <span class="brand-mark" aria-hidden="true">CI</span>
@@ -130,7 +138,7 @@
             <div class="kpi-cell">
               <span class="kpi-title">A recusar</span>
               <div class="kpi-value kpi-perigo" id="kpiQtdErros">0</div>
-              <div class="kpi-sub">marcados Não Receber</div>
+              <div class="kpi-sub" id="kpiSubRecusar">marcados Não Receber</div>
             </div>
 
             <div class="kpi-cell">
@@ -170,6 +178,7 @@
               <option value="pendentes">Apenas Pendentes</option>
               <option value="recusar">Apenas a Recusar (Não Receber)</option>
               <option value="mspc">Apenas Pedidos MSPC</option>
+              <option value="recusados">Apenas Recusados Manualmente</option>
             </select>
             <div class="chips-filtro" id="chipsFiltro" role="group" aria-label="Filtro de exibição">
               <button type="button" class="chip-filtro ativo" data-filtro="todos">Todos <span class="chip-count" data-count="todos">0</span></button>
@@ -177,6 +186,7 @@
               <button type="button" class="chip-filtro" data-filtro="conferidos">Conferidos <span class="chip-count cor-ok" data-count="conferidos">0</span></button>
               <button type="button" class="chip-filtro" data-filtro="recusar">Não receber <span class="chip-count cor-perigo" data-count="recusar">0</span></button>
               <button type="button" class="chip-filtro" data-filtro="mspc">MSPC <span class="chip-count cor-info" data-count="mspc">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="recusados">Recusados (avaria) <span class="chip-count cor-recusa" data-count="recusados">0</span></button>
             </div>
             <label class="campo-busca">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
@@ -187,6 +197,16 @@
 
         <!-- Tela de Bipar -->
         <div id="visaoBipar" style="display: none;">
+          <div class="modo-recusa-barra" id="barraModoRecusa">
+            <label class="modo-recusa-toggle" for="switchModoRecusa">
+              <input type="checkbox" id="switchModoRecusa" role="switch" aria-describedby="textoModoRecusa">
+              <span class="modo-recusa-trilho" aria-hidden="true"><span class="modo-recusa-bola"></span></span>
+              <span class="modo-recusa-rotulo">
+                <strong>Modo recusa (avaria)</strong>
+                <span id="textoModoRecusa">Desligado: os volumes bipados ficam como Conferido.</span>
+              </span>
+            </label>
+          </div>
           <div class="bipar-grid">
             <div class="bipar-coluna">
               <div class="card-container bipar-entrada">
@@ -297,7 +317,11 @@
               <span class="micro-card-label">Pedidos a serem recusados</span>
               <span class="micro-card-value cor-perigo" id="microRecusasBipadas">0</span>
             </div>
-            <div class="micro-card clickable micro-card-largo" id="cardNaoEncontrados" title="Clique para ver os detalhes">
+            <div class="micro-card clickable" id="cardRecusadosManual" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Recusados manualmente (avaria)</span>
+              <span class="micro-card-value cor-recusa" id="microRecusadosManual">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardNaoEncontrados" title="Clique para ver os detalhes">
               <span class="micro-card-label">Etiquetas não encontradas (divergências)</span>
               <span class="micro-card-value cor-violeta" id="microNaoEncontrados">0</span>
             </div>
@@ -351,6 +375,10 @@
             <div class="micro-card clickable" id="cardResumoNaoEncontrados" title="Clique para ver itens bipados fora da carga">
               <span class="micro-card-label">Divergências (fora da lista)</span>
               <span class="micro-card-value cor-violeta" id="resumoNaoEncontrados">0</span>
+            </div>
+            <div class="micro-card clickable micro-card-largo" id="cardResumoRecusadosManual" title="Clique para ver os volumes recusados manualmente">
+              <span class="micro-card-label">Recusados manualmente (avaria)</span>
+              <span class="micro-card-value cor-recusa" id="resumoRecusadosManual">0</span>
             </div>
           </div>
 

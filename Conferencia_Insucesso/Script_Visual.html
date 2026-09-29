@@ -48,8 +48,9 @@
       const divergencia = status.includes('Divergência') || status.includes('Não Encontrado');
       const recusar = aval === 'não receber' || aval === 'nao receber' || status === 'Bloqueado';
       const conferido = tr.classList.contains('linha-conferida');
+      const recusaManual = tr.classList.contains('linha-recusada-manual') || status === 'Recusado Manualmente';
       const pedido = textoCelula(tds, typeof indicePedidoFaturado !== 'undefined' ? indicePedidoFaturado : -1).replace('MSPC', '').trim();
-      return { divergencia, recusar, conferido, pedido, mspc: tr.dataset.mspc === 'true' };
+      return { divergencia, recusar, conferido, recusaManual, pedido, mspc: tr.dataset.mspc === 'true' };
     }
 
     function linhasDeItem() {
@@ -75,6 +76,7 @@
 
     function chipStatus(estado) {
       if (estado.recusar) return { classe: 'st-recusar', texto: 'Não receber' };
+      if (estado.recusaManual) return { classe: 'st-recusa-manual', texto: 'Recusado (avaria)' };
       if (estado.conferido) return { classe: 'st-ok', texto: 'Conferido' };
       return { classe: 'st-pendente', texto: 'Pendente' };
     }
@@ -97,7 +99,7 @@
       corpo.querySelectorAll('tr.linha-grupo').forEach(tr => tr.remove());
 
       const itens = linhasDeItem();
-      const contagem = { todos: 0, pendentes: 0, conferidos: 0, recusar: 0, mspc: 0 };
+      const contagem = { todos: 0, pendentes: 0, conferidos: 0, recusar: 0, mspc: 0, recusados: 0 };
       const grupos = [];
       let grupoAtual = null;
       let grupoUnitarios = null;
@@ -117,11 +119,13 @@
         const htmlChip = `<span class="chip-status ${chip.classe}">${chip.texto}</span>`;
         if (thStatus.innerHTML !== htmlChip) thStatus.innerHTML = htmlChip;
         tr.classList.toggle('linha-recusar', est.recusar && !est.divergencia);
+        tr.classList.toggle('linha-recusada-manual', est.recusaManual && !est.recusar);
 
         if (est.divergencia) return;
 
         contagem.todos++;
-        if (est.conferido) contagem.conferidos++;
+        if (est.conferido && !est.recusaManual) contagem.conferidos++;
+        if (est.recusaManual && !est.recusar) contagem.recusados++;
         if (est.recusar) contagem.recusar++;
         if (!est.conferido && !est.recusar) contagem.pendentes++;
         if (est.mspc) contagem.mspc++;
@@ -187,6 +191,12 @@
       }
 
       atualizarIndicadores();
+      const subRecusar = document.getElementById('kpiSubRecusar');
+      if (subRecusar) {
+        subRecusar.textContent = contagem.recusados
+          ? `Não Receber · ${contagem.recusados} recusado(s) por avaria`
+          : 'marcados Não Receber';
+      }
     }
 
     function atualizarIndicadores() {
@@ -280,6 +290,8 @@
       'divergencia':          { classe: 'st-divergencia', texto: 'Fora da carga' },
       'divergencia-repetida': { classe: 'st-divergencia', texto: 'Já registada' },
       'repetido':             { classe: 'st-repetido',    texto: 'Já conferido' },
+      'recusa-manual':        { classe: 'st-recusa-manual', texto: 'Recusado (avaria)' },
+      'recusa-convertida':    { classe: 'st-recusa-manual', texto: 'Alterado p/ recusa' },
       'invalido':             { classe: 'st-repetido',    texto: 'Inválido' }
     };
 
@@ -302,7 +314,44 @@
       while (listaLeituras.children.length > MAX_LEITURAS) listaLeituras.lastElementChild.remove();
     };
 
+    // ---------------------------------------------------------------------------
+    // MODO RECUSA (AVARIA)
+    // Enquanto ligado, cada volume bipado fica como "Recusado Manualmente".
+    // Indicação visual forte (faixa fixa, moldura e campo em vermelho) para não ficar
+    // ligado por esquecimento. Desliga sozinho ao trocar/voltar de carga e ao finalizar.
+    // ---------------------------------------------------------------------------
+    const switchModoRecusa = document.getElementById('switchModoRecusa');
+    const bannerModoRecusa = document.getElementById('bannerModoRecusa');
+    const textoModoRecusa = document.getElementById('textoModoRecusa');
+    const btnDesligarModoRecusa = document.getElementById('btnDesligarModoRecusa');
+    const campoEtiqueta = document.getElementById('inputEtiqueta');
+    let modoRecusa = false;
+
+    window.modoRecusaAtivo = function() { return modoRecusa; };
+
+    function definirModoRecusa(ligar) {
+      modoRecusa = !!ligar;
+      if (switchModoRecusa) switchModoRecusa.checked = modoRecusa;
+      document.body.classList.toggle('modo-recusa-ativo', modoRecusa);
+      if (bannerModoRecusa) bannerModoRecusa.hidden = !modoRecusa;
+      if (textoModoRecusa) {
+        textoModoRecusa.textContent = modoRecusa
+          ? 'LIGADO: cada volume bipado será RECUSADO MANUALMENTE (avaria).'
+          : 'Desligado: os volumes bipados ficam como Conferido.';
+      }
+      if (campoEtiqueta) campoEtiqueta.placeholder = modoRecusa ? 'Bipe o volume a RECUSAR (avaria)' : 'Bipe ou digite a etiqueta';
+      const visaoBiparEl = document.getElementById('visaoBipar');
+      if (campoEtiqueta && visaoBiparEl && visaoBiparEl.style.display !== 'none') campoEtiqueta.focus();
+    }
+    window.definirModoRecusa = definirModoRecusa;
+
+    if (switchModoRecusa) switchModoRecusa.addEventListener('change', () => definirModoRecusa(switchModoRecusa.checked));
+    if (btnDesligarModoRecusa) btnDesligarModoRecusa.addEventListener('click', () => definirModoRecusa(false));
+    const btnConfirmarFinal = document.getElementById('btnConfirmarFinalizacao');
+    if (btnConfirmarFinal) btnConfirmarFinal.addEventListener('click', () => definirModoRecusa(false));
+
     function limparSessaoVisual() {
+      definirModoRecusa(false);
       if (listaLeituras) listaLeituras.innerHTML = '<li class="leituras-vazio">Nenhuma leitura ainda.</li>';
       if (busca) busca.value = '';
       const corpoErros = document.getElementById('corpoNaoEncontrados');

@@ -247,8 +247,10 @@
           }
       } else {
           totalItensCarga++;
-          if (statusValue === "Conferido") {
+          // "Recusado Manualmente" (modo recusa/avaria) também foi bipado: conta no progresso
+          if (statusValue === "Conferido" || statusValue === "Recusado Manualmente") {
              tr.classList.add('linha-conferida');
+             if (statusValue === "Recusado Manualmente") tr.classList.add('linha-recusada-manual');
              isConferida = true;
              itensConferidosCarga++;
              if (indicePedidoFaturado !== -1) {
@@ -321,12 +323,15 @@
         }
         
         const isConferido = linha.classList.contains('linha-conferida');
+        const isRecusaManual = linha.classList.contains('linha-recusada-manual');
         const isMspc = linha.dataset.mspc === 'true';
 
         if (modo === 'todos') {
           linha.style.display = '';
         } else if (modo === 'conferidos') {
-          linha.style.display = isConferido ? '' : 'none';
+          linha.style.display = (isConferido && !isRecusaManual) ? '' : 'none';
+        } else if (modo === 'recusados') {
+          linha.style.display = isRecusaManual ? '' : 'none';
         } else if (modo === 'pendentes') {
           linha.style.display = (!isConferido && !isRecusar) ? '' : 'none';
         } else if (modo === 'recusar') {

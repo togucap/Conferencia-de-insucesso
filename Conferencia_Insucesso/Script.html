@@ -109,6 +109,12 @@
                             ${icone('relogio')}
                             <span>Item reincidente: bloqueado (Não Receber) na carga ${esc(historicoItem.ultimaCarga)}.</span>
                         </div>`;
+                } else if (historicoItem.ultimoStatus === "Recusado Manualmente") {
+                    msgAlertaHistorico = `
+                        <div class="bipe-aviso bipe-aviso-perigo">
+                            ${icone('relogio')}
+                            <span>Atenção: este item foi recusado manualmente (avaria) na carga ${esc(historicoItem.ultimaCarga)}.</span>
+                        </div>`;
                 } else if (historicoItem.ultimoStatus === "Falta Confirmada") {
                     msgAlertaHistorico = `
                         <div class="bipe-aviso bipe-aviso-info">
@@ -122,6 +128,12 @@
             let encontrouJaConferido = false;
             let linhaPlanilhaIndex = -1;
             let celulasAlvo = null;
+
+            // Modo recusa (avaria): o volume bipado fica como "Recusado Manualmente"
+            const modoRecusa = typeof modoRecusaAtivo === 'function' && modoRecusaAtivo();
+            const STATUS_RECUSA = "Recusado Manualmente";
+            let linhaConvertivel = null;   // já conferida (OK) e que pode passar a recusa
+            let jaRecusadoManual = false;
 
             if (!tabelaCorpo) return;
             const linhasTabela = tabelaCorpo.querySelectorAll('tr');
@@ -166,6 +178,10 @@
 
                 if (!linhasTabela[i].classList.contains('linha-conferida')) {
                   linhasTabela[i].classList.add('linha-conferida');
+                  if (modoRecusa) {
+                    linhasTabela[i].classList.add('linha-recusada-manual');
+                    if (indiceStatus !== -1 && celulas[indiceStatus]) celulas[indiceStatus].textContent = STATUS_RECUSA;
+                  }
                   encontrouNaoConferido = true;
                   linhaPlanilhaIndex = linhasTabela[i].dataset.linhaOriginal;
                   celulasAlvo = celulas;
@@ -175,6 +191,11 @@
                   break;
                 } else {
                   encontrouJaConferido = true;
+                  if (linhasTabela[i].classList.contains('linha-recusada-manual')) {
+                    jaRecusadoManual = true;
+                  } else if (!linhaConvertivel) {
+                    linhaConvertivel = { tr: linhasTabela[i], celulas: celulas };
+                  }
                 }
               }
             }
@@ -218,19 +239,55 @@
 
               if (indiceDataHora !== -1 && celulasAlvo && celulasAlvo[indiceDataHora]) celulasAlvo[indiceDataHora].textContent = dataHora;
 
-              if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
-                  tipo: 'ok', icone: icone('ok'),
-                  titulo: 'Conferido', sub: `Lido e auditado às ${horaCurta()}`,
-                  tag: mspcVal !== "" ? '<span class="tag-mspc">Item MSPC</span>' : '',
-                  aviso: msgAlertaHistorico,
-                  etiqueta: codigoBipado, produto: nomeProd, meta: meta.join(' · '),
-                  rodape: rodape
-              });
-              registrarLeitura(codigoBipado, 'ok', nomeProd);
-              google.script.run.registrarConferencia(cargaAtual, linhaPlanilhaIndex, dataHora);
+              if (modoRecusa) {
+                  if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
+                      tipo: 'recusa', icone: icone('bloqueio'),
+                      titulo: 'RECUSADO MANUALMENTE', sub: `Recusa por avaria registada às ${horaCurta()}. Separe o volume.`,
+                      tag: mspcVal !== "" ? '<span class="tag-mspc">Item MSPC</span>' : '',
+                      aviso: msgAlertaHistorico,
+                      etiqueta: codigoBipado, produto: nomeProd, meta: meta.join(' · '),
+                      rodape: rodape
+                  });
+                  registrarLeitura(codigoBipado, 'recusa-manual', nomeProd);
+                  google.script.run.registrarRecusaManual(cargaAtual, linhaPlanilhaIndex, dataHora);
+              } else {
+                  if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
+                      tipo: 'ok', icone: icone('ok'),
+                      titulo: 'Conferido', sub: `Lido e auditado às ${horaCurta()}`,
+                      tag: mspcVal !== "" ? '<span class="tag-mspc">Item MSPC</span>' : '',
+                      aviso: msgAlertaHistorico,
+                      etiqueta: codigoBipado, produto: nomeProd, meta: meta.join(' · '),
+                      rodape: rodape
+                  });
+                  registrarLeitura(codigoBipado, 'ok', nomeProd);
+                  google.script.run.registrarConferencia(cargaAtual, linhaPlanilhaIndex, dataHora);
+              }
 
               if (typeof atualizarDashboardGerencial === 'function') atualizarDashboardGerencial();
 
+            } else if (encontrouJaConferido && modoRecusa && linhaConvertivel) {
+              // Já estava conferido (OK) e o operador bipou de novo em modo recusa: passa a recusa manual
+              const alvo = linhaConvertivel;
+              alvo.tr.classList.add('linha-recusada-manual');
+              if (indiceStatus !== -1 && alvo.celulas[indiceStatus]) alvo.celulas[indiceStatus].textContent = STATUS_RECUSA;
+              if (indiceDataHora !== -1 && alvo.celulas[indiceDataHora]) alvo.celulas[indiceDataHora].textContent = dataHora;
+              const nomeConv = (indiceColunaProduto !== -1 && alvo.celulas[indiceColunaProduto]) ? alvo.celulas[indiceColunaProduto].textContent.trim() : "";
+              if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
+                  tipo: 'recusa', icone: icone('repetido'),
+                  titulo: 'ALTERADO PARA RECUSA', sub: 'Este volume já estava conferido e passou a Recusado Manualmente (avaria).',
+                  aviso: msgAlertaHistorico,
+                  etiqueta: codigoBipado, produto: nomeConv
+              });
+              registrarLeitura(codigoBipado, 'recusa-convertida', nomeConv);
+              google.script.run.registrarRecusaManual(cargaAtual, alvo.tr.dataset.linhaOriginal, dataHora);
+              atualizarProgresso();
+            } else if (encontrouJaConferido && jaRecusadoManual && !linhaConvertivel) {
+              if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
+                  tipo: 'repetido', icone: icone('repetido'),
+                  titulo: 'Já recusado manualmente', sub: 'Este volume já foi bipado em modo recusa (avaria).',
+                  etiqueta: codigoBipado
+              });
+              registrarLeitura(codigoBipado, 'repetido');
             } else if (encontrouJaConferido) {
               if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                   tipo: 'repetido', icone: icone('repetido'),

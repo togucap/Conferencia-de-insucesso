@@ -34,6 +34,15 @@
       return ped + "|" + merc;
   }
 
+  // --- RECUSA MANUAL (MODO RECUSA / AVARIA) ---
+  // O volume foi bipado (conta no progresso), mas não entra como "conferido/recebido".
+  function isRecusaManualLinha(linhaObj) {
+      const tr = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+      if (tr) return tr.classList.contains('linha-recusada-manual');
+      const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+      return status === "Recusado Manualmente";
+  }
+
   // --- FUNÇÃO AUXILIAR DE CÁLCULO MICRO ---
   function calcularMetricasMicro() {
     let pedCompletosPedidos = [];
@@ -70,7 +79,8 @@
               const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
               if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
               const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
-              return trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+              const conferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+              return conferido && !isRecusaManualLinha(linhaObj);
           });
 
           const linhasNaoConferidas = linhasGlobais.filter(linhaObj => {
@@ -80,7 +90,7 @@
               const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
               if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
               const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
-              const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+              const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido" || status === "Recusado Manualmente");
               return !isConferido;
           });
 
@@ -88,6 +98,10 @@
               const mercadoria = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
               return recusasInterceptadas.has(mercadoria);
           });
+
+          const linhasRecusaManual = linhasGlobais.filter(isRecusaManualLinha);
+          const elResumoRecManual = document.getElementById('resumoRecusadosManual');
+          if (elResumoRecManual) elResumoRecManual.innerText = linhasRecusaManual.length;
 
           const metricas = calcularMetricasMicro();
           const linhasParciais = linhasGlobais.filter(l => metricas.multParciaisPedidos.includes(String(l.dados[indicePedidoFaturado]).trim()));
@@ -208,6 +222,8 @@
               document.getElementById('cardResumoPendentes').onclick = () => mostrarDetalhesResumo('Itens Pendentes (Não bipados)', linhasNaoConferidas, 'cardResumoPendentes');
               document.getElementById('cardResumoParciais').onclick = () => mostrarDetalhesResumo('Pedidos Parciais Incompletos', linhasParciais, 'cardResumoParciais');
               document.getElementById('cardResumoRecusados').onclick = () => mostrarDetalhesResumo('Itens Recusados (Bloqueados)', linhasRecusasBipadas, 'cardResumoRecusados');
+              const cardResRecManual = document.getElementById('cardResumoRecusadosManual');
+              if (cardResRecManual) cardResRecManual.onclick = () => mostrarDetalhesResumo('Recusados Manualmente (Avaria)', linhasRecusaManual, 'cardResumoRecusadosManual');
               
               if (document.getElementById('cardResumoNaoEncontrados')) {
                   document.getElementById('cardResumoNaoEncontrados').onclick = () => mostrarDetalhesResumo('Divergências (Etiquetas não encontradas)', Array.from(divergenciasBipadas), 'cardResumoNaoEncontrados', 'lista_simples');
@@ -336,7 +352,8 @@
                 const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
                 if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
                 const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
-                return trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+                const conferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+                return conferido && !isRecusaManualLinha(linhaObj);
             });
 
             const linhasNaoConferidas = linhasGlobais.filter(linhaObj => {
@@ -346,7 +363,7 @@
                 const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
                 if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
                 const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
-                const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+                const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido" || status === "Recusado Manualmente");
                 return !isConferido;
             });
 
@@ -355,6 +372,9 @@
             if (microMultiplosParciais) microMultiplosParciais.innerText = metricas.multParciaisPedidos.length;
             if (microRecusasBipadas) microRecusasBipadas.innerText = recusasInterceptadas.size;
             if (microNaoEncontrados) microNaoEncontrados.innerText = divergenciasBipadas.size;
+            const linhasRecusaManualMicro = linhasGlobais.filter(isRecusaManualLinha);
+            const elMicroRecManual = document.getElementById('microRecusadosManual');
+            if (elMicroRecManual) elMicroRecManual.innerText = linhasRecusaManualMicro.length;
 
             const pendenteSistemico = linhasNaoConferidas.filter(l => mspcSet.has(getChaveSistemica(l)));
             const bipadoNaoSistemico = linhasConferidas.filter(l => !mspcSet.has(getChaveSistemica(l)));
@@ -469,6 +489,8 @@
                 document.getElementById('cardMultiplosParciais').onclick = () => mostrarDetalhes('Pedidos Parciais Incompletos', linhasParciaisMicro, 'cardMultiplosParciais');
                 document.getElementById('cardRecusasBipadas').onclick = () => mostrarDetalhes('Pedidos a serem recusados', linhasRecusasMicro, 'cardRecusasBipadas');
                 document.getElementById('cardNaoEncontrados').onclick = () => mostrarDetalhes('Etiquetas não encontradas', Array.from(divergenciasBipadas), 'cardNaoEncontrados', 'lista_simples');
+                const cardMicroRecManual = document.getElementById('cardRecusadosManual');
+                if (cardMicroRecManual) cardMicroRecManual.onclick = () => mostrarDetalhes('Recusados Manualmente (Avaria)', linhasRecusaManualMicro, 'cardRecusadosManual');
                 
                 document.getElementById('cardMicroBipSist').onclick = () => mostrarDetalhes('Itens Bipados no Lista de Chegada', bipadoSistemico, 'cardMicroBipSist');
                 document.getElementById('cardMicroBipNaoSist').onclick = () => mostrarDetalhes('Itens Bipados Fora do Lista de Chegada', bipadoNaoSistemico, 'cardMicroBipNaoSist');

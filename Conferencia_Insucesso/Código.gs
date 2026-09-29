@@ -149,6 +149,12 @@ function registrarBloqueio(nomeAba, rowIndex, dataHora) {
   _atualizarCelulaStatus(nomeAba, rowIndex, "Bloqueado", dataHora);
 }
 
+// Modo recusa (avaria): o volume foi bipado, mas separado e recusado pelo operador
+const STATUS_RECUSA_MANUAL = "Recusado Manualmente";
+function registrarRecusaManual(nomeAba, rowIndex, dataHora) {
+  _atualizarCelulaStatus(nomeAba, rowIndex, STATUS_RECUSA_MANUAL, dataHora);
+}
+
 function _atualizarCelulaStatus(nomeAba, rowIndex, statusTxt, dataHora) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName(nomeAba);
@@ -388,6 +394,7 @@ function getDashboardMetrics() {
           let volRealizado = 0;
           let recTotal = 0;
           let recRealizado = 0;
+          let recManual = 0;
           
           for (let i = 1; i < dados.length; i++) {
              const linha = dados[i];
@@ -420,8 +427,9 @@ function getDashboardMetrics() {
                 if (!isBloqueado) {
                     volTotal++;
                     
-                    if (status === "Conferido") {
+                    if (status === "Conferido" || status === STATUS_RECUSA_MANUAL) {
                         volRealizado++;
+                        if (status === STATUS_RECUSA_MANUAL) recManual++;
                         // Conta quantos itens daquele pedido foram bipados
                         if (ped) {
                             mapPedConferido[ped] = (mapPedConferido[ped] || 0) + 1;
@@ -448,7 +456,8 @@ function getDashboardMetrics() {
             volume: volTotal,
             realVolumes: volRealizado,
             recusados: recTotal,
-            realRecusados: recRealizado
+            realRecusados: recRealizado,
+            recusadosManual: recManual
           });
         }
       }
@@ -1000,10 +1009,11 @@ function _atualizarHistoricoNaFinalizacao(nomeAba, aba, setListaChegada) {
         const aval = idxAval !== -1 ? String(dados[i][idxAval]).trim().toLowerCase() : "";
 
         let isBloqueado = (status === "Bloqueado" || aval === "não receber" || aval === "nao receber");
-        let isFalta = (!isBloqueado && status !== "Conferido" && !status.includes("Divergência") && !setListaChegada.has(chave));
+        let isRecusaManual = (!isBloqueado && status === STATUS_RECUSA_MANUAL);
+        let isFalta = (!isBloqueado && !isRecusaManual && status !== "Conferido" && !status.includes("Divergência") && !setListaChegada.has(chave));
 
-        if (isBloqueado || isFalta) {
-            const novoStatus = isBloqueado ? "Bloqueado" : "Falta Confirmada";
+        if (isBloqueado || isRecusaManual || isFalta) {
+            const novoStatus = isBloqueado ? "Bloqueado" : (isRecusaManual ? STATUS_RECUSA_MANUAL : "Falta Confirmada");
             
             let obj;
             if (mapHist[chave]) {
