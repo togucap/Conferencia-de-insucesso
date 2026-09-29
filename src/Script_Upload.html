@@ -1,0 +1,342 @@
+<script>
+  // ============================================================================
+  // SCRIPT: UPLOAD DE FICHEIROS (CARGAS E LISTAS DE CHEGADA)
+  // Responsabilidade: Ler o ficheiro no cliente e enviar matriz para o servidor
+  // ============================================================================
+
+  const btnAbrirModalUpload = document.getElementById('btnAbrirModalUpload');
+  const modalUpload = document.getElementById('modalUpload');
+  const btnFecharModalUpload = document.getElementById('btnFecharModalUpload');
+  const btnCancelarUpload = document.getElementById('btnCancelarUpload');
+  const btnConfirmarUpload = document.getElementById('btnConfirmarUpload');
+  const dataNovaCarga = document.getElementById('dataNovaCarga');
+  const dropZoneUpload = document.getElementById('dropZoneUpload');
+  const dropZoneText = document.getElementById('dropZoneText');
+  
+  function mostrarAlertaUpload(mensagem) {
+    const textoAlertaUpload = document.getElementById('textoAlertaUpload');
+    if (textoAlertaUpload) textoAlertaUpload.innerHTML = mensagem;
+    if (typeof modalAlertaUpload !== 'undefined' && modalAlertaUpload) {
+        modalAlertaUpload.style.display = 'flex';
+    }
+  }
+
+  // ============================================================================
+  // LÓGICA 1: UPLOAD DE "NOVA CARGA" PADRÃO
+  // ============================================================================
+  if (btnAbrirModalUpload) {
+    btnAbrirModalUpload.addEventListener('click', function() {
+      if (modalUpload) modalUpload.style.display = 'flex';
+      
+      const hoje = new Date().toISOString().split('T')[0];
+      if (dataNovaCarga) dataNovaCarga.value = hoje;
+      
+      if (typeof arquivoNovaCarga !== 'undefined' && arquivoNovaCarga) arquivoNovaCarga.value = '';
+      if (dropZoneUpload) {
+          dropZoneUpload.classList.remove('has-file');
+          if (dropZoneText) {
+              dropZoneText.innerHTML = 'Arraste e solte o ficheiro Excel aqui<br>ou <strong style="color: var(--emerald); cursor: pointer;">clique para procurar</strong>';
+          }
+      }
+      if (typeof msgUploadProgresso !== 'undefined' && msgUploadProgresso) {
+          msgUploadProgresso.style.display = 'none';
+      }
+      if (btnConfirmarUpload) btnConfirmarUpload.disabled = false;
+    });
+  }
+
+  // DRAG AND DROP (Nova Carga)
+  if (dropZoneUpload && typeof arquivoNovaCarga !== 'undefined' && arquivoNovaCarga) {
+      dropZoneUpload.addEventListener('click', () => arquivoNovaCarga.click());
+
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          dropZoneUpload.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+          dropZoneUpload.addEventListener(eventName, () => dropZoneUpload.style.borderColor = 'var(--emerald)', false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+          dropZoneUpload.addEventListener(eventName, () => dropZoneUpload.style.borderColor = 'var(--border-color)', false);
+      });
+
+      dropZoneUpload.addEventListener('drop', function(e) {
+          const dt = e.dataTransfer;
+          if (dt.files.length > 0) {
+              arquivoNovaCarga.files = dt.files;
+              atualizarTextoDropZone(dt.files[0].name, dropZoneUpload, dropZoneText, 'var(--emerald)');
+          }
+      }, false);
+
+      arquivoNovaCarga.addEventListener('change', function() {
+          if (this.files.length > 0) {
+              atualizarTextoDropZone(this.files[0].name, dropZoneUpload, dropZoneText, 'var(--emerald)');
+          }
+      });
+  }
+
+  function atualizarTextoDropZone(nomeFicheiro, dropZoneElem, dropTextElem, corDestaque) {
+      if (dropZoneElem) dropZoneElem.classList.add('has-file');
+      if (dropTextElem) {
+          dropTextElem.innerHTML = `<strong style="color: ${corDestaque}; font-size: 16px;">Ficheiro Selecionado:</strong><br><span style="color: var(--text-main); font-weight: 600; margin-top: 5px; display: inline-block;">${nomeFicheiro}</span>`;
+      }
+  }
+
+  const fecharModalUpload = () => { if (modalUpload) modalUpload.style.display = 'none'; };
+  if (btnFecharModalUpload) btnFecharModalUpload.addEventListener('click', fecharModalUpload);
+  if (btnCancelarUpload) btnCancelarUpload.addEventListener('click', fecharModalUpload);
+
+  if (btnConfirmarUpload) {
+    btnConfirmarUpload.addEventListener('click', function() {
+      const ficheiro = typeof arquivoNovaCarga !== 'undefined' && arquivoNovaCarga ? arquivoNovaCarga.files[0] : null;
+      const dataSelecionada = dataNovaCarga ? dataNovaCarga.value : "";
+
+      if (!dataSelecionada) { mostrarAlertaUpload("Selecione a data da carga."); return; }
+      if (!ficheiro) { mostrarAlertaUpload("Nenhum ficheiro selecionado."); return; }
+
+      if (!ficheiro.name.includes("Carga_insucesso")) {
+        mostrarAlertaUpload("<strong>Padrão inválido!</strong><br><br>O ficheiro deve conter 'Carga_insucesso' no seu nome.");
+        return;
+      }
+
+      const partesData = dataSelecionada.split('-');
+      const nomeAba = `${partesData[2]}-${partesData[1]}-${partesData[0]}`;
+
+      if (msgUploadProgresso) {
+          msgUploadProgresso.style.display = 'block';
+          msgUploadProgresso.innerText = 'A ler o ficheiro...';
+      }
+      btnConfirmarUpload.disabled = true;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const dados = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(dados, { type: 'array' });
+          const nomePrimeiraAba = workbook.SheetNames[0];
+          
+          // LÊ COM RAW: FALSE para garantir que os números de moeda não viram datas. Puxa os dados exatamente como se vê no Excel.
+          const matrizDados = XLSX.utils.sheet_to_json(workbook.Sheets[nomePrimeiraAba], { header: 1, defval: "", raw: false });
+          
+          if (matrizDados.length === 0) throw new Error("Ficheiro vazio.");
+
+          const payloadString = JSON.stringify(matrizDados);
+
+          if (msgUploadProgresso) msgUploadProgresso.innerText = 'A enviar para o ecossistema...';
+          
+          google.script.run
+            .withSuccessHandler(function(resposta) {
+               btnConfirmarUpload.disabled = false;
+               if (resposta.erro) {
+                  if (msgUploadProgresso) msgUploadProgresso.innerText = '⛔ ' + resposta.erro;
+               } else {
+                  if (msgUploadProgresso) msgUploadProgresso.innerText = '✅ Carga importada com sucesso!';
+                  setTimeout(() => {
+                    fecharModalUpload();
+                    google.script.run.withSuccessHandler(preencherSelectAbas).getAbasPlanilha();
+                  }, 1500);
+               }
+            })
+            .withFailureHandler(function(erro) {
+               btnConfirmarUpload.disabled = false;
+               const msgError = erro ? (erro.message || erro) : "Falha desconhecida";
+               if (msgUploadProgresso) msgUploadProgresso.innerText = '⛔ Falha na conexão: ' + msgError;
+            })
+            .uploadNovaCarga(nomeAba, payloadString);
+        } catch (erro) {
+          if (msgUploadProgresso) msgUploadProgresso.innerText = '⛔ Erro: ' + erro.message;
+          btnConfirmarUpload.disabled = false;
+        }
+      };
+      reader.readAsArrayBuffer(ficheiro);
+    });
+  }
+
+  // ============================================================================
+  // LÓGICA 2: UPLOAD DE LISTA DE CHEGADA (D-0)
+  // ============================================================================
+  if (btnAbrirModalUploadChegada) {
+    btnAbrirModalUploadChegada.addEventListener('click', function() {
+      if (modalUploadChegada) modalUploadChegada.style.display = 'flex';
+      
+      if (typeof arquivoListaChegada !== 'undefined' && arquivoListaChegada) arquivoListaChegada.value = '';
+      if (dropZoneUploadChegada) {
+          dropZoneUploadChegada.classList.remove('has-file');
+          if (dropZoneTextChegada) {
+              dropZoneTextChegada.innerHTML = 'Arraste e solte o ficheiro <strong>Lista_chegada</strong> aqui<br>ou <strong style="color: var(--brand-accent); cursor: pointer;">clique para procurar</strong>';
+          }
+      }
+      if (typeof msgUploadProgressoChegada !== 'undefined' && msgUploadProgressoChegada) {
+          msgUploadProgressoChegada.style.display = 'none';
+      }
+      if (btnConfirmarUploadChegada) btnConfirmarUploadChegada.disabled = false;
+    });
+  }
+
+  // DRAG AND DROP (Lista Chegada)
+  if (dropZoneUploadChegada && typeof arquivoListaChegada !== 'undefined' && arquivoListaChegada) {
+      dropZoneUploadChegada.addEventListener('click', () => arquivoListaChegada.click());
+
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          dropZoneUploadChegada.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+          dropZoneUploadChegada.addEventListener(eventName, () => dropZoneUploadChegada.style.borderColor = 'var(--brand-accent)', false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+          dropZoneUploadChegada.addEventListener(eventName, () => dropZoneUploadChegada.style.borderColor = 'var(--border-color)', false);
+      });
+
+      dropZoneUploadChegada.addEventListener('drop', function(e) {
+          const dt = e.dataTransfer;
+          if (dt.files.length > 0) {
+              arquivoListaChegada.files = dt.files;
+              atualizarTextoDropZone(dt.files[0].name, dropZoneUploadChegada, dropZoneTextChegada, 'var(--brand-accent)');
+          }
+      }, false);
+
+      arquivoListaChegada.addEventListener('change', function() {
+          if (this.files.length > 0) {
+              atualizarTextoDropZone(this.files[0].name, dropZoneUploadChegada, dropZoneTextChegada, 'var(--brand-accent)');
+          }
+      });
+  }
+
+  const fecharModalUploadChegada = () => { if (modalUploadChegada) modalUploadChegada.style.display = 'none'; };
+  if (btnFecharModalUploadChegada) btnFecharModalUploadChegada.addEventListener('click', fecharModalUploadChegada);
+  if (btnCancelarUploadChegada) btnCancelarUploadChegada.addEventListener('click', fecharModalUploadChegada);
+
+  if (btnConfirmarUploadChegada) {
+    btnConfirmarUploadChegada.addEventListener('click', function() {
+      const ficheiro = typeof arquivoListaChegada !== 'undefined' && arquivoListaChegada ? arquivoListaChegada.files[0] : null;
+
+      if (!ficheiro) { mostrarAlertaUpload("Nenhum ficheiro selecionado."); return; }
+
+      if (!ficheiro.name.includes("Lista_chegada")) {
+        mostrarAlertaUpload("<strong>Ficheiro Incorreto!</strong><br><br>Para esta operação, o ficheiro deve conter <strong>'Lista_chegada'</strong> no seu nome.");
+        return;
+      }
+
+      if (msgUploadProgressoChegada) {
+          msgUploadProgressoChegada.style.display = 'block';
+          msgUploadProgressoChegada.innerText = 'A ler e preparar os dados locais...';
+      }
+      btnConfirmarUploadChegada.disabled = true;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const dados = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(dados, { type: 'array' });
+          const nomePrimeiraAba = workbook.SheetNames[0];
+          
+          // LÊ COM RAW: FALSE para garantir que os números de moeda e datas vêm formatados como visíveis no ecrã.
+          const matrizDados = XLSX.utils.sheet_to_json(workbook.Sheets[nomePrimeiraAba], { header: 1, defval: "", raw: false });
+          
+          if (matrizDados.length <= 1) throw new Error("O ficheiro está vazio ou apenas contém o cabeçalho.");
+
+          const cabecalhoOriginal = matrizDados[0];
+          const colunasAlvo = [
+            { titulo: "Etiqueta do produto", variacoes: ["etiqueta do produto"] },
+            { titulo: "Num do pedido", variacoes: ["num do pedido", "número do pedido", "numero do pedido"] },
+            { titulo: "Data de entrada RMA", variacoes: ["data de entrada rma", "entrada rma"] },
+            { titulo: "Valor unitário do produto", variacoes: ["valor unit", "rio do produto", "valor unitario", "valor unitário"] },
+            { titulo: "Código do produto", variacoes: ["digo do produto", "código do produto", "codigo do produto", "cdigo do produto"] },
+            { titulo: "CD Destino", variacoes: ["cd destino"] }
+          ];
+          
+          let indices = [];
+          let cabecalhoFiltrado = [];
+          let idxDataEntrada = -1;
+          let idxEtiquetaCsv = -1;
+          let idxPedidoCsv = -1;
+
+          colunasAlvo.forEach(function(alvo) {
+              const idx = cabecalhoOriginal.findIndex(c => {
+                  const cLower = String(c).trim().toLowerCase();
+                  return alvo.variacoes.some(variacao => cLower.includes(variacao));
+              });
+              
+              if (idx !== -1) {
+                indices.push(idx);
+                cabecalhoFiltrado.push(alvo.titulo);
+                if (alvo.titulo === "Data de entrada RMA") idxDataEntrada = idx;
+                if (alvo.titulo === "Etiqueta do produto") idxEtiquetaCsv = idx;
+                if (alvo.titulo === "Num do pedido") idxPedidoCsv = idx;
+              }
+          });
+
+          if (indices.length === 0) throw new Error("Nenhuma das colunas alvo foi encontrada neste ficheiro.");
+
+          let dadosFiltrados = [];
+          dadosFiltrados.push(cabecalhoFiltrado); 
+
+          for (let i = 1; i < matrizDados.length; i++) {
+              let linha = matrizDados[i];
+              if (!linha || linha.join('').trim() === '') continue;
+
+              if (idxDataEntrada !== -1) {
+                  let valorData = linha[idxDataEntrada] ? String(linha[idxDataEntrada]).trim() : "";
+                  // Aceita a linha caso a data não esteja totalmente vazia.
+                  if (!valorData) continue; 
+
+                  // Força o formato DD/MM/YYYY caso venha como YYYY-MM-DD
+                  if (/^\d{4}[\-\/]\d{2}[\-\/]\d{2}/.test(valorData)) {
+                      const dataApenas = valorData.substring(0, 10);
+                      const partes = dataApenas.split(/[\-\/]/);
+                      valorData = `${partes[2]}/${partes[1]}/${partes[0]}`;
+                      linha[idxDataEntrada] = valorData; // Atualiza na matriz
+                  }
+              }
+
+              let novaLinha = indices.map(idx => linha[idx] !== undefined ? linha[idx] : "");
+              dadosFiltrados.push(novaLinha);
+          }
+
+          const payloadString = JSON.stringify(dadosFiltrados);
+
+          if (msgUploadProgressoChegada) msgUploadProgressoChegada.innerText = 'A cruzar informações e a inserir novas etiquetas na base...';
+          
+          google.script.run
+            .withSuccessHandler(function(resposta) {
+               btnConfirmarUploadChegada.disabled = false;
+               if (resposta.erro) {
+                  if (msgUploadProgressoChegada) {
+                      msgUploadProgressoChegada.innerText = '⛔ ' + resposta.erro;
+                      msgUploadProgressoChegada.style.color = 'var(--red-alert)';
+                  }
+               } else {
+                  if (msgUploadProgressoChegada) {
+                      msgUploadProgressoChegada.innerText = `✅ Processamento concluído! Foram agregadas ${resposta.linhasProcessadas} linhas novas.`;
+                      msgUploadProgressoChegada.style.color = 'var(--emerald)';
+                  }
+                  setTimeout(() => {
+                    fecharModalUploadChegada();
+                  }, 3000);
+               }
+            })
+            .withFailureHandler(function(erro) {
+               btnConfirmarUploadChegada.disabled = false;
+               if (msgUploadProgressoChegada) {
+                   const msgError = erro ? (erro.message || erro) : "Falha desconhecida";
+                   msgUploadProgressoChegada.innerText = '⛔ Erro de comunicação: ' + msgError;
+                   msgUploadProgressoChegada.style.color = 'var(--red-alert)';
+               }
+            })
+            .processarUploadListaChegada(payloadString);
+            
+        } catch (erro) {
+          if (msgUploadProgressoChegada) {
+              msgUploadProgressoChegada.innerText = '⛔ Erro: ' + erro.message;
+              msgUploadProgressoChegada.style.color = 'var(--red-alert)';
+          }
+          btnConfirmarUploadChegada.disabled = false;
+        }
+      };
+      reader.readAsArrayBuffer(ficheiro);
+    });
+  }
+</script>

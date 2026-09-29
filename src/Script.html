@@ -1,0 +1,211 @@
+<script>
+  // ============================================================================
+  // SCRIPT PRINCIPAL: MOTOR DE AUDITORIA (BIPAGEM INTELIGENTE INTER-CARGAS)
+  // ============================================================================
+
+  if (inputEtiqueta) {
+      inputEtiqueta.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          const codigoBipado = inputEtiqueta.value.trim();
+          
+          if (codigoBipado !== "") {
+            if (!/^\d{8}$/.test(codigoBipado)) {
+              if (modalAlertaEtiqueta && textoAlertaEtiqueta) {
+                  textoAlertaEtiqueta.innerHTML = `A etiqueta <strong>"${codigoBipado}"</strong> está fora do padrão de 8 dígitos.<br>Por favor, verifique e tente novamente.`;
+                  modalAlertaEtiqueta.style.display = 'flex';
+              }
+              if (resultadoBipe) resultadoBipe.innerHTML = `<span style="color: var(--red-alert)">Código inválido rejeitado: ${codigoBipado}</span>`;
+              inputEtiqueta.value = ""; 
+              return; 
+            }
+
+            if (indiceColunaMercadoria === -1) {
+              if (modalAlertaEtiqueta && textoAlertaEtiqueta) {
+                  textoAlertaEtiqueta.innerHTML = "FALHA NA ESTRUTURA:<br>A coluna <strong>'Mercadoria Código'</strong> está ausente na base de dados.";
+                  modalAlertaEtiqueta.style.display = 'flex';
+              }
+              inputEtiqueta.value = "";
+              return;
+            }
+
+            // ========================================================================
+            // NOVA TRAVA: VERIFICAÇÃO SILENCIOSA DE DIVERGÊNCIAS (REINCIDÊNCIA)
+            // Impede que um item já classificado como "Fora da Carga" mude para "Conferido"
+            // ao ser lido uma 2ª, 3ª vez etc. Mantém o ecrã fluído.
+            // ========================================================================
+            if (divergenciasBipadas.has(codigoBipado)) {
+                if (resultadoBipe) resultadoBipe.innerHTML = `<span style="color: var(--brand-accent); font-size: 15px; font-weight: 600;">⚠️ Atenção: A etiqueta ${codigoBipado} já foi bipada e consta como Divergência.</span>`;
+                inputEtiqueta.value = "";
+                return; // Aborta antes de iterar pelas linhas da tabela
+            }
+
+            const historicoItem = typeof mapaHistoricoGlobal !== 'undefined' ? mapaHistoricoGlobal[codigoBipado] : null;
+            let msgAlertaHistorico = "";
+            let isReincidenteBloqueado = false;
+
+            if (historicoItem) {
+                if (historicoItem.ultimoStatus === "Bloqueado") {
+                    isReincidenteBloqueado = true;
+                    msgAlertaHistorico = `
+                        <div style="background-color: var(--red-alert); color: white; padding: 12px; border-radius: 8px; margin-bottom: 10px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                            <strong>⚠️ ITEM REINCIDENTE!</strong><br>
+                            Bloqueado (Não Receber) na carga passada (${historicoItem.ultimaCarga}).
+                        </div>`;
+                } else if (historicoItem.ultimoStatus === "Falta Confirmada") {
+                    msgAlertaHistorico = `
+                        <div style="background-color: var(--brand-accent); color: white; padding: 12px; border-radius: 8px; margin-bottom: 10px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                            <strong>🎯 FALTA RECUPERADA!</strong><br>
+                            Este item estava pendente na carga do dia ${historicoItem.ultimaCarga}.
+                        </div>`;
+                }
+            }
+
+            let encontrouNaoConferido = false;
+            let encontrouJaConferido = false;
+            let linhaPlanilhaIndex = -1;
+            let celulasAlvo = null;
+            
+            if (!tabelaCorpo) return;
+            const linhasTabela = tabelaCorpo.querySelectorAll('tr');
+            
+            for (let i = 0; i < linhasTabela.length; i++) {
+              const celulas = linhasTabela[i].querySelectorAll('td');
+              
+              if (celulas[indiceColunaMercadoria] && celulas[indiceColunaMercadoria].textContent.trim() === codigoBipado) {
+                
+                let isAvaliacaoLocalBloqueada = false;
+                if (indiceColunaAvaliacao !== -1) {
+                  const aval = celulas[indiceColunaAvaliacao].textContent.trim().toLowerCase();
+                  if (aval === 'não receber' || aval === 'nao receber') isAvaliacaoLocalBloqueada = true;
+                }
+
+                if (isAvaliacaoLocalBloqueada || isReincidenteBloqueado) {
+                    const nomeProibido = indiceColunaProduto !== -1 ? celulas[indiceColunaProduto].textContent : "";
+                    
+                    recusasInterceptadas.add(codigoBipado);
+                    const dataHora = new Date().toLocaleString('pt-BR');
+                    linhaPlanilhaIndex = linhasTabela[i].dataset.linhaOriginal; 
+
+                    if (indiceStatus !== -1 && celulas[indiceStatus]) celulas[indiceStatus].textContent = "Bloqueado";
+                    if (isReincidenteBloqueado && indiceColunaAvaliacao !== -1 && celulas[indiceColunaAvaliacao]) {
+                        celulas[indiceColunaAvaliacao].textContent = "Não Receber"; 
+                    }
+                    
+                    google.script.run.registrarBloqueio(cargaAtual, linhaPlanilhaIndex, dataHora);
+
+                    // Mostra o número E o nome do produto barrado juntos na mesma linha
+                    if (resultadoBipe) resultadoBipe.innerHTML = msgAlertaHistorico + `
+                      <div style="background-color: var(--red-alert); color: white; padding: 20px; border-radius: 8px; text-align: center; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                        <h2 style="margin: 0 0 10px 0; font-size: 28px;">⛔ NÃO RECEBER! ⛔</h2>
+                        <p style="margin: 0; font-size: 16px; font-weight: 600;">Produto bloqueado pela auditoria.</p>
+                        <p style="margin: 8px 0 0 0; font-size: 15px;">📦 ${codigoBipado}${nomeProibido ? ' - ' + nomeProibido : ''}</p>
+                      </div>
+                    `;
+                    inputEtiqueta.value = "";
+                    return; 
+                }
+                
+                if (!linhasTabela[i].classList.contains('linha-conferida')) {
+                  linhasTabela[i].classList.add('linha-conferida');
+                  encontrouNaoConferido = true;
+                  linhaPlanilhaIndex = linhasTabela[i].dataset.linhaOriginal; 
+                  celulasAlvo = celulas;
+                  
+                  itensConferidosCarga++;
+                  atualizarProgresso();
+                  break; 
+                } else {
+                  encontrouJaConferido = true;
+                }
+              }
+            }
+
+            const dataHora = new Date().toLocaleString('pt-BR');
+
+            if (encontrouNaoConferido) {
+              let nomeProd = "";
+              if (indiceColunaProduto !== -1 && celulasAlvo && celulasAlvo[indiceColunaProduto]) {
+                  nomeProd = celulasAlvo[indiceColunaProduto].textContent.trim();
+              }
+              
+              let mspcVal = "";
+              if (indiceMspc !== -1 && celulasAlvo && celulasAlvo[indiceMspc]) {
+                  mspcVal = celulasAlvo[indiceMspc].textContent.trim();
+              }
+              
+              // Junta a Etiqueta e a Descrição do Produto na mesma linha!
+              let textoSucesso = `✔️ Lido e Auditado com Sucesso: ${codigoBipado}`;
+              if (nomeProd !== "") {
+                  textoSucesso += ` - ${nomeProd}`;
+              }
+              
+              let htmlResposta = msgAlertaHistorico + `<span style="color: var(--emerald); font-weight: 700; display: block; margin-bottom: 10px; font-size: 15px;">${textoSucesso}</span>`;
+              
+              if (mspcVal !== "") {
+                  htmlResposta += `
+                    <div style="background-color: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3); display: inline-block; font-weight: 700; font-size: 13px; margin-bottom: 12px; letter-spacing: 0.5px;">
+                        🔵 ITEM MSPC
+                    </div><br>`;
+              }
+
+              if (indicePedidoFaturado !== -1 && celulasAlvo && celulasAlvo[indicePedidoFaturado]) {
+                  const pedAlvo = celulasAlvo[indicePedidoFaturado].textContent.replace('MSPC', '').trim();
+                  const totalDestePedido = mapaPedidosTotal[pedAlvo] || 1;
+                  mapaPedidosConferidos[pedAlvo] = (mapaPedidosConferidos[pedAlvo] || 0) + 1;
+                  
+                  if (totalDestePedido > 1) {
+                      const faltam = totalDestePedido - mapaPedidosConferidos[pedAlvo];
+                      if (faltam > 0) {
+                          htmlResposta += `
+                            <div style="background-color: var(--brand-accent); color: white; padding: 12px; border-radius: 8px; display: inline-block; font-weight: 700; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: 5px;">
+                              📦 PEDIDO PARCIAL: FALTAM ${faltam} ITEM(S)
+                            </div>`;
+                      } else {
+                          htmlResposta += `
+                            <div style="background-color: var(--emerald); color: white; padding: 12px; border-radius: 8px; display: inline-block; font-weight: 700; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: 5px;">
+                              ✅ PEDIDO MÚLTIPLO COMPLETO!
+                            </div>`;
+                      }
+                  }
+              }
+              
+              if (indiceDataHora !== -1 && celulasAlvo && celulasAlvo[indiceDataHora]) celulasAlvo[indiceDataHora].textContent = dataHora;
+              
+              if (resultadoBipe) resultadoBipe.innerHTML = htmlResposta;
+              google.script.run.registrarConferencia(cargaAtual, linhaPlanilhaIndex, dataHora);
+              
+              if (typeof atualizarDashboardGerencial === 'function') atualizarDashboardGerencial();
+              
+            } else if (encontrouJaConferido) {
+              if (resultadoBipe) resultadoBipe.innerHTML = `<span style="color: var(--brand-accent); font-size: 15px; font-weight: 600;">⚠️ Atenção: Volumetria esgotada para a etiqueta ${codigoBipado}. (Já conferido)</span>`;
+            } else {
+              if (isReincidenteBloqueado) {
+                  if (resultadoBipe) resultadoBipe.innerHTML = msgAlertaHistorico + `<span style="color: var(--red-alert); font-weight: 600; font-size: 15px;">⛔ Rejeição Definitiva: O item não consta na malha e já tem histórico de bloqueio.</span>`;
+              } else {
+                  if (resultadoBipe) resultadoBipe.innerHTML = msgAlertaHistorico + `<span style="color: var(--red-alert); font-weight: 600; font-size: 15px;">⛔ Divergência de Risco: Código ${codigoBipado} ausente na malha atual.</span>`;
+              }
+              
+              if (containerNaoEncontrados) containerNaoEncontrados.style.display = 'block';
+              const li = document.createElement('li');
+              const hora = new Date().toLocaleTimeString('pt-BR');
+              li.innerHTML = `<strong>${codigoBipado}</strong> - Bipado às ${hora}`;
+              if (listaNaoEncontrados) listaNaoEncontrados.prepend(li);
+              
+              divergenciasBipadas.add(codigoBipado);
+              
+              // ATUALIZAR CONTADOR (BADGE)
+              const badgeErros = document.getElementById('badgeErros');
+              if (badgeErros) {
+                  badgeErros.innerText = divergenciasBipadas.size;
+                  badgeErros.style.display = 'inline-block';
+              }
+              
+              google.script.run.registrarErroNaMesmaAba(cargaAtual, codigoBipado, dataHora);
+            }
+            
+            inputEtiqueta.value = "";
+          }
+        }
+      });
+  }
+</script>

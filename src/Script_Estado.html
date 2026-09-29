@@ -1,0 +1,242 @@
+<script>
+  // ============================================================================
+  // SCRIPT: ESTADO E FUNDAÇÕES
+  // ============================================================================
+
+  // --- ELEMENTOS DO DOM ---
+  const selectAbas = document.getElementById('selectAbas');
+  const btnCarregar = document.getElementById('btnCarregar');
+  const statusMensagem = document.getElementById('statusMensagem');
+  const tabelaCabecalho = document.getElementById('tabelaCabecalho');
+  const tabelaCorpo = document.getElementById('tabelaCorpo');
+
+  const kpiContainer = document.getElementById('kpiContainer');
+  const kpiQtdPedidos = document.getElementById('kpiQtdPedidos');
+  const kpiQtdMultiplos = document.getElementById('kpiQtdMultiplos');
+  const kpiQtdMultiplosContainer = document.getElementById('kpiQtdMultiplosContainer');
+  const kpiQtdItens = document.getElementById('kpiQtdItens');
+  const kpiQtdErros = document.getElementById('kpiQtdErros');
+
+  const containerProgresso = document.getElementById('containerProgresso');
+  const textoProgresso = document.getElementById('textoProgresso');
+  const barraProgresso = document.getElementById('barraProgresso');
+  const tableControls = document.getElementById('tableControls');
+  const filtroTabela = document.getElementById('filtroTabela');
+
+  const btnFinalizarAuditoria = document.getElementById('btnFinalizarAuditoria');
+  const modalResumoFinal = document.getElementById('modalResumoFinal');
+  const btnContinuarAuditoria = document.getElementById('btnContinuarAuditoria');
+  const btnVoltarSelecao = document.getElementById('btnVoltarSelecao');
+  
+  const modalConfirmacao = document.getElementById('modalConfirmacao');
+  const btnCancelarFinalizacao = document.getElementById('btnCancelarFinalizacao');
+  const btnConfirmarFinalizacao = document.getElementById('btnConfirmarFinalizacao');
+  const modalAlertaEtiqueta = document.getElementById('modalAlertaEtiqueta');
+  const textoAlertaEtiqueta = document.getElementById('textoAlertaEtiqueta');
+  const btnFecharAlertaEtiqueta = document.getElementById('btnFecharAlertaEtiqueta');
+  
+  const resumoTaxaConclusao = document.getElementById('resumoTaxaConclusao');
+  const resumoItensAuditados = document.getElementById('resumoItensAuditados');
+  const resumoPendentesGeral = document.getElementById('resumoPendentesGeral');
+  const resumoParciais = document.getElementById('resumoParciais');
+  const resumoRecusados = document.getElementById('resumoRecusados');
+  const resumoNaoEncontrados = document.getElementById('resumoNaoEncontrados'); 
+  const cardResumoTaxa = document.getElementById('cardResumoTaxa');
+  const cardResumoAuditados = document.getElementById('cardResumoAuditados');
+  const cardResumoPendentes = document.getElementById('cardResumoPendentes');
+  const cardResumoParciais = document.getElementById('cardResumoParciais');
+  const cardResumoRecusados = document.getElementById('cardResumoRecusados');
+  const cardResumoNaoEncontrados = document.getElementById('cardResumoNaoEncontrados'); 
+  const detalhesResumoContainer = document.getElementById('detalhesResumoContainer');
+  const detalhesResumoTitulo = document.getElementById('detalhesResumoTitulo');
+  const tabelaDetalhesResumoCabecalho = document.getElementById('tabelaDetalhesResumoCabecalho');
+  const tabelaDetalhesResumo = document.getElementById('tabelaDetalhesResumo');
+
+  const btnRelatorioMicro = document.getElementById('btnRelatorioMicro');
+  const btnExportarMicro = document.getElementById('btnExportarMicro'); 
+  const btnExportarResumo = document.getElementById('btnExportarResumo');
+  const modalMicro = document.getElementById('modalMicro');
+  const btnFecharModal = document.getElementById('btnFecharModal');
+  const cardPedidosCompletos = document.getElementById('cardPedidosCompletos');
+  const cardMultiplosCompletos = document.getElementById('cardMultiplosCompletos');
+  const cardMultiplosParciais = document.getElementById('cardMultiplosParciais');
+  const cardRecusasBipadas = document.getElementById('cardRecusasBipadas');
+  const cardNaoEncontrados = document.getElementById('cardNaoEncontrados'); 
+  const microPedidosCompletos = document.getElementById('microPedidosCompletos');
+  const microMultiplosCompletos = document.getElementById('microMultiplosCompletos');
+  const microMultiplosParciais = document.getElementById('microMultiplosParciais');
+  const microRecusasBipadas = document.getElementById('microRecusasBipadas');
+  const microNaoEncontrados = document.getElementById('microNaoEncontrados'); 
+  const detalhesMicroContainer = document.getElementById('detalhesMicroContainer');
+  
+  const arquivoNovaCarga = document.getElementById('arquivoNovaCarga');
+  const msgUploadProgresso = document.getElementById('msgUploadProgresso');
+
+  const btnAbrirModalUploadChegada = document.getElementById('btnAbrirModalUploadChegada');
+  const modalUploadChegada = document.getElementById('modalUploadChegada');
+  const btnFecharModalUploadChegada = document.getElementById('btnFecharModalUploadChegada');
+  const btnCancelarUploadChegada = document.getElementById('btnCancelarUploadChegada');
+  const btnConfirmarUploadChegada = document.getElementById('btnConfirmarUploadChegada');
+  const dropZoneUploadChegada = document.getElementById('dropZoneUploadChegada');
+  const dropZoneTextChegada = document.getElementById('dropZoneTextChegada');
+  const arquivoListaChegada = document.getElementById('arquivoListaChegada');
+  const msgUploadProgressoChegada = document.getElementById('msgUploadProgressoChegada');
+
+  const modalAlertaUpload = document.getElementById('modalAlertaUpload');
+  const btnFecharAlertaUpload = document.getElementById('btnFecharAlertaUpload');
+
+  const btnAbrirModalBloqueio = document.getElementById('btnAbrirModalBloqueio');
+  const modalBloqueioEmMassa = document.getElementById('modalBloqueioEmMassa');
+  const btnFecharModalBloqueio = document.getElementById('btnFecharModalBloqueio');
+  const btnCancelarBloqueio = document.getElementById('btnCancelarBloqueio');
+  const btnConfirmarBloqueio = document.getElementById('btnConfirmarBloqueio');
+  const tipoBuscaBloqueio = document.getElementById('tipoBuscaBloqueio');
+  const listaBloqueio = document.getElementById('listaBloqueio');
+  const msgBloqueioProgresso = document.getElementById('msgBloqueioProgresso');
+
+  // --- VARIÁVEIS GLOBAIS DE ESTADO ---
+  let indiceColunaMercadoria = -1;
+  let indiceColunaAvaliacao = -1;
+  let indiceColunaProduto = -1;
+  let indicePedidoFaturado = -1;
+  let indiceNF = -1; // NOVO: Guarda a posição da coluna Nota Fiscal
+  let indiceStatus = -1; 
+  let indiceDataHora = -1; 
+  let indiceMspc = -1; // NOVO: Guarda a posição da coluna Conferencia MSPC
+  let cargaAtual = ""; 
+  let chartProdutividade = null; 
+  
+  let totalItensCarga = 0;
+  let itensConferidosCarga = 0;
+  let mapaPedidosTotal = {};
+  let mapaPedidosConferidos = {};
+  let recusasInterceptadas = new Set(); 
+  let divergenciasBipadas = new Set(); 
+  let linhasGlobais = []; 
+  
+  // Dicionário em memória do Cérebro Histórico JSON
+  let mapaHistoricoGlobal = {};
+
+  // --- INICIALIZAÇÃO DO SISTEMA ---
+  document.addEventListener("DOMContentLoaded", function() {
+    if (statusMensagem) statusMensagem.innerText = "Conectando à base de dados do ecossistema...";
+    
+    // Carrega as abas normais
+    google.script.run
+      .withSuccessHandler(preencherSelectAbas)
+      .withFailureHandler(mostrarErroDaInicializacao)
+      .getAbasPlanilha();
+      
+    // Carrega a inteligência JSON para varreduras em milissegundos
+    google.script.run
+      .withSuccessHandler(function(hist) { mapaHistoricoGlobal = hist || {}; })
+      .obterHistoricoEventosFrontend();
+  });
+
+  function preencherSelectAbas(abas) {
+    if (statusMensagem) statusMensagem.innerText = "";
+    
+    const containerContent = document.getElementById('conteudoDropdownCarga');
+    if (!containerContent) return;
+    
+    let abertas = abas.filter(a => !(typeof a === 'string' ? false : a.finalizada));
+    let concluidas = abas.filter(a => (typeof a === 'string' ? false : a.finalizada));
+    
+    let html = '';
+    
+    if (abertas.length > 0) {
+        html += `
+        <div class="carga-group-header">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--brand-accent);"></div>
+            Em Aberto / Processamento
+        </div>`;
+        abertas.forEach(a => {
+            const nome = typeof a === 'string' ? a : a.nome;
+            html += `
+            <div class="carga-item aberta" data-value="${nome}" data-finalizada="false">
+                <span class="carga-item-title">${nome}</span>
+                <span class="carga-badge badge-aberta">Processando</span>
+            </div>`;
+        });
+    }
+    
+    if (concluidas.length > 0) {
+        html += `
+        <div class="carga-group-header">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--emerald);"></div>
+            Cargas Finalizadas
+        </div>`;
+        concluidas.forEach(a => {
+            const nome = typeof a === 'string' ? a : a.nome;
+            html += `
+            <div class="carga-item concluida" data-value="${nome}" data-finalizada="true">
+                <span class="carga-item-title">${nome}</span>
+                <span class="carga-badge badge-concluida">Concluída</span>
+            </div>`;
+        });
+    }
+    
+    if (html === '') {
+        html = '<div style="padding: 15px; color: var(--text-support); text-align: center;">Nenhuma carga encontrada na base de dados.</div>';
+    }
+    
+    containerContent.innerHTML = html;
+  }
+
+  document.addEventListener('click', function(e) {
+      const dropdown = document.getElementById('dropdownSelecaoCarga');
+      const btnSelect = document.getElementById('btnSelectAbas');
+      const labelStr = document.getElementById('labelCargaSelecionada');
+      const inputHidden = document.getElementById('selectAbas');
+      const btnIniciarLocal = document.getElementById('btnCarregar');
+      
+      if (!dropdown) return;
+      
+      if (e.target.closest('#btnSelectAbas')) {
+          dropdown.classList.toggle('active');
+          const content = document.getElementById('conteudoDropdownCarga');
+          content.style.display = dropdown.classList.contains('active') ? 'block' : 'none';
+      } 
+      else if (e.target.closest('.carga-item')) {
+          const item = e.target.closest('.carga-item');
+          const valor = item.getAttribute('data-value');
+          const finalizada = item.getAttribute('data-finalizada') === 'true';
+          
+          inputHidden.value = valor;
+          inputHidden.dataset.finalizada = finalizada; 
+          
+          if (finalizada) {
+              labelStr.innerHTML = `${valor} <span style="color: var(--emerald); font-size: 12px; margin-left: 8px;">(Concluída)</span>`;
+          } else {
+              labelStr.innerHTML = `${valor} <span style="color: var(--brand-accent); font-size: 12px; margin-left: 8px;">(Em Aberto)</span>`;
+          }
+          
+          dropdown.classList.remove('active');
+          document.getElementById('conteudoDropdownCarga').style.display = 'none';
+          if (btnIniciarLocal) btnIniciarLocal.disabled = false;
+      }
+      else if (!e.target.closest('#dropdownSelecaoCarga')) {
+          dropdown.classList.remove('active');
+          const content = document.getElementById('conteudoDropdownCarga');
+          if (content) content.style.display = 'none';
+      }
+  });
+
+  function mostrarErroDaInicializacao(erro) {
+    if (statusMensagem) statusMensagem.innerText = "Falha de conexão com a infraestrutura: " + erro.message;
+    if (btnCarregar) btnCarregar.disabled = false;
+  }
+
+  // --- SISTEMA DE CARREGAMENTO GLOBAL (SPINNER) ---
+  const globalLoader = document.getElementById('globalLoader');
+  const globalLoaderText = document.getElementById('globalLoaderText');
+
+  window.mostrarLoader = function(mensagem) {
+      if (globalLoaderText) globalLoaderText.innerText = mensagem || "A processar...";
+      if (globalLoader) globalLoader.style.display = 'flex';
+  };
+
+  window.esconderLoader = function() {
+      if (globalLoader) globalLoader.style.display = 'none';
+  };
+</script>

@@ -1,0 +1,91 @@
+<script>
+  // ============================================================================
+  // SCRIPT: BLOQUEIO EM MASSA (SINALIZAR RECUSAS)
+  // Responsabilidade: Capturar lista colada, enviar ao backend e atualizar a base
+  // ============================================================================
+
+  // Lógica de abertura do modal
+  if (btnAbrirModalBloqueio) {
+    btnAbrirModalBloqueio.addEventListener('click', function() {
+      const abaSelecionada = selectAbas.value;
+      
+      if (!abaSelecionada) {
+        // Usa o modal de erro genérico se o utilizador não escolheu a aba
+        if (modalAlertaUpload && document.getElementById('textoAlertaUpload')) {
+            document.getElementById('textoAlertaUpload').innerText = "Por favor, selecione primeiro a Carga (Lote) no menu suspenso onde deseja aplicar as recusas.";
+            modalAlertaUpload.style.display = 'flex';
+        } else {
+            alert("Por favor, selecione primeiro uma Carga.");
+        }
+        return;
+      }
+      
+      if (document.getElementById('labelCargaBloqueio')) {
+         document.getElementById('labelCargaBloqueio').innerText = abaSelecionada;
+      }
+      
+      if (modalBloqueioEmMassa) modalBloqueioEmMassa.style.display = 'flex';
+      if (listaBloqueio) listaBloqueio.value = '';
+      if (msgBloqueioProgresso) msgBloqueioProgresso.style.display = 'none';
+      if (btnConfirmarBloqueio) btnConfirmarBloqueio.disabled = false;
+    });
+  }
+  
+  const fecharModalBloqueio = () => {
+    if (modalBloqueioEmMassa) modalBloqueioEmMassa.style.display = 'none';
+  };
+  
+  if (btnFecharModalBloqueio) btnFecharModalBloqueio.addEventListener('click', fecharModalBloqueio);
+  if (btnCancelarBloqueio) btnCancelarBloqueio.addEventListener('click', fecharModalBloqueio);
+  
+  if (btnConfirmarBloqueio) {
+    btnConfirmarBloqueio.addEventListener('click', function() {
+        const aba = selectAbas.value;
+        if (!aba) return;
+        
+        const texto = listaBloqueio.value;
+        if (!texto.trim()) {
+            alert("Cole os números dos pedidos ou NFs na caixa de texto antes de aplicar.");
+            return;
+        }
+        
+        // Separação avançada: quebra a lista colada do Excel por quebras de linha, tabs ou vírgulas
+        const arrayValores = texto.split(/\r?\n|\t|,/).map(s => s.trim()).filter(s => s !== "");
+        if (arrayValores.length === 0) return;
+        
+        const tipoBusca = tipoBuscaBloqueio.value;
+        
+        msgBloqueioProgresso.style.display = 'block';
+        msgBloqueioProgresso.innerText = `A procurar e cruzar ${arrayValores.length} itens na base de dados...`;
+        msgBloqueioProgresso.style.color = 'var(--brand-accent)';
+        btnConfirmarBloqueio.disabled = true;
+        
+        google.script.run
+            .withSuccessHandler(function(resposta) {
+                if (resposta.erro) {
+                    msgBloqueioProgresso.innerText = '⛔ ' + resposta.erro;
+                    msgBloqueioProgresso.style.color = 'var(--red-alert)';
+                    btnConfirmarBloqueio.disabled = false;
+                } else {
+                    msgBloqueioProgresso.innerText = `✅ Concluído! ${resposta.modificados} produtos encontrados e sinalizados como "Não Receber".`;
+                    msgBloqueioProgresso.style.color = 'var(--emerald)';
+                    
+                    setTimeout(() => {
+                        fecharModalBloqueio();
+                        // Se a carga em que aplicou os bloqueios for a mesma que está aberta na tabela visual, força o recarregamento automático
+                        if (cargaAtual === aba) {
+                            btnCarregar.disabled = false;
+                            btnCarregar.click();
+                        }
+                    }, 2000);
+                }
+            })
+            .withFailureHandler(function(erro) {
+                msgBloqueioProgresso.innerText = '⛔ Falha na conexão: ' + erro.message;
+                msgBloqueioProgresso.style.color = 'var(--red-alert)';
+                btnConfirmarBloqueio.disabled = false;
+            })
+            .aplicarRecusasEmMassa(aba, tipoBusca, arrayValores);
+    });
+  }
+</script>

@@ -1,0 +1,340 @@
+<script>
+  // ============================================================================
+  // SCRIPT: MANIPULAÇÃO DE DADOS, PREPARAÇÃO E RENDERIZAÇÃO DA TABELA
+  // ============================================================================
+
+  if (btnCarregar) {
+      btnCarregar.addEventListener('click', function() {
+          const aba = selectAbas ? selectAbas.value : "";
+          if (aba) {
+              cargaAtual = aba;
+              
+              const isFinalizada = selectAbas.dataset.finalizada === 'true';
+              if (isFinalizada) {
+                  if (btnFinalizarAuditoria) btnFinalizarAuditoria.style.display = 'none';
+              } else {
+                  if (btnFinalizarAuditoria) btnFinalizarAuditoria.style.display = 'block';
+              }
+
+              btnCarregar.disabled = true;
+              if (statusMensagem) statusMensagem.innerText = "A carregar dados do ecossistema...";
+              
+              if (tabelaCabecalho) tabelaCabecalho.innerHTML = "";
+              if (tabelaCorpo) tabelaCorpo.innerHTML = "";
+              if (listaNaoEncontrados) listaNaoEncontrados.innerHTML = "";
+              if (containerNaoEncontrados) containerNaoEncontrados.style.display = 'none';
+              
+              // LIMPAR BADGE DE ERROS
+              const badgeErros = document.getElementById('badgeErros');
+              if (badgeErros) {
+                  badgeErros.style.display = 'none';
+                  badgeErros.innerText = "0";
+              }
+              
+              if (resultadoBipe) resultadoBipe.innerText = "";
+              if (kpiContainer) kpiContainer.style.display = 'none';
+              if (containerProgresso) containerProgresso.style.display = 'none';
+              if (containerTabela) containerTabela.style.display = 'none';
+              if (tableControls) tableControls.style.display = 'none';
+              if (containerSwitchVisao) containerSwitchVisao.style.display = 'none';
+              if (visaoBipar) visaoBipar.style.display = 'none';
+              if (switchVisao) switchVisao.checked = false; 
+              if (textoVisao) textoVisao.innerText = 'Modo Tabela';
+              if (filtroTabela) filtroTabela.value = "todos";
+
+              if (typeof mostrarLoader === 'function') mostrarLoader("A carregar dados do ecossistema e a construir a malha de conferência...");
+
+              google.script.run
+                .withSuccessHandler(function(resposta) {
+                    if (typeof esconderLoader === 'function') esconderLoader();
+                    preencherTabela(resposta);
+                })
+                .withFailureHandler(function(erro) {
+                   if (typeof esconderLoader === 'function') esconderLoader();
+                   if (statusMensagem) statusMensagem.innerText = "Falha ao ler dados: " + erro.message;
+                   btnCarregar.disabled = false;
+                })
+                .getDadosDaAba(aba);
+          }
+      });
+  }
+
+  function carregarDivergenciasAnteriores(aba) {
+    google.script.run
+      .withSuccessHandler(function(erros) {
+        if (erros && erros.length > 0) {
+          let msgErros = "";
+          erros.forEach(e => {
+            msgErros += `<li><strong>${e.codigo}</strong> - Bipado às ${e.hora}</li>`;
+            divergenciasBipadas.add(String(e.codigo).trim());
+          });
+          if (listaNaoEncontrados && msgErros) listaNaoEncontrados.innerHTML = msgErros;
+          if (containerNaoEncontrados && msgErros) {
+              containerNaoEncontrados.style.display = 'block';
+              
+              // ATUALIZAR CONTADOR COM ERROS DO PASSADO
+              const badgeErros = document.getElementById('badgeErros');
+              if (badgeErros) {
+                  badgeErros.innerText = erros.length;
+                  badgeErros.style.display = 'inline-block';
+              }
+          }
+        }
+      })
+      .getErrosDaCarga(aba);
+  }
+
+  function atualizarProgresso() {
+    if (!containerProgresso || !textoProgresso || !barraProgresso) return;
+    
+    const porcentagem = totalItensCarga === 0 ? 0 : Math.round((itensConferidosCarga / totalItensCarga) * 100);
+    textoProgresso.innerText = `${itensConferidosCarga} / ${totalItensCarga} (${porcentagem}%)`;
+    barraProgresso.style.width = porcentagem + '%';
+    
+    if (kpiQtdItens) kpiQtdItens.innerText = totalItensCarga;
+    
+    let pedTotal = Object.keys(mapaPedidosTotal).length;
+    let pedConcluidos = 0;
+    for (const pedido in mapaPedidosTotal) {
+      if (mapaPedidosConferidos[pedido] === mapaPedidosTotal[pedido]) {
+        pedConcluidos++;
+      }
+    }
+    if (kpiQtdPedidos) kpiQtdPedidos.innerText = `${pedConcluidos} / ${pedTotal}`;
+    if (kpiQtdErros) kpiQtdErros.innerText = recusasInterceptadas.size;
+  }
+
+  function preencherTabela(resposta) {
+    btnCarregar.disabled = false;
+    
+    if (resposta.erro) {
+      if (statusMensagem) statusMensagem.innerText = resposta.erro;
+      return;
+    }
+    if (resposta.bloqueio) {
+      if (modalAlertaEtiqueta && textoAlertaEtiqueta) {
+          textoAlertaEtiqueta.innerHTML = resposta.bloqueio;
+          modalAlertaEtiqueta.style.display = 'flex';
+      }
+      if (statusMensagem) statusMensagem.innerHTML = `<span style="color: var(--red-alert)">${resposta.bloqueio}</span>`;
+      return;
+    }
+
+    const matriz = resposta.dados;
+    if (statusMensagem) statusMensagem.innerText = "";
+    
+    const cabecalhoMatriz = matriz[0];
+    const cbLower = cabecalhoMatriz.map(c => String(c).trim().toLowerCase());
+    
+    indiceColunaMercadoria = cbLower.indexOf("mercadoria código") !== -1 ? cbLower.indexOf("mercadoria código") : cbLower.indexOf("mercadoria codigo");
+    indiceColunaAvaliacao = cbLower.indexOf("avaliação") !== -1 ? cbLower.indexOf("avaliação") : cbLower.indexOf("avaliacao");
+    
+    // Motor robusto para encontrar a coluna de Nome/Descrição (Ignorando a coluna de "Código Produto")
+    indiceColunaProduto = cbLower.findIndex(c => 
+        (c.includes("produto") || c.includes("descrição") || c.includes("descricao") || c.includes("nome")) && 
+        !c.includes("código") && !c.includes("codigo")
+    );
+    
+    indicePedidoFaturado = cbLower.indexOf("número do pedido faturado") !== -1 ? cbLower.indexOf("número do pedido faturado") : cbLower.indexOf("numero do pedido faturado");
+    indiceNF = cbLower.indexOf("nota fiscal") !== -1 ? cbLower.indexOf("nota fiscal") : cbLower.indexOf("nf");
+    indiceStatus = cbLower.indexOf("status conferência") !== -1 ? cbLower.indexOf("status conferência") : cbLower.indexOf("status conferencia");
+    indiceDataHora = cbLower.indexOf("data/hora conferência") !== -1 ? cbLower.indexOf("data/hora conferência") : cbLower.indexOf("data/hora conferencia");
+    indiceMspc = cbLower.findIndex(c => c.includes("conferencia mspc"));
+    
+    totalItensCarga = 0;
+    itensConferidosCarga = 0;
+    mapaPedidosTotal = {};
+    mapaPedidosConferidos = {};
+    recusasInterceptadas.clear();
+    divergenciasBipadas.clear();
+    linhasGlobais = [];
+
+    // Linha de cabeçalho
+    let trHead = document.createElement('tr');
+    for (let j = 0; j < cabecalhoMatriz.length; j++) {
+      let th = document.createElement('th');
+      th.innerText = cabecalhoMatriz[j];
+      trHead.appendChild(th);
+    }
+    if (tabelaCabecalho) tabelaCabecalho.appendChild(trHead);
+
+    // Etapa 1: Leitura Inicial para Contagem de Múltiplos
+    for (let i = 1; i < matriz.length; i++) {
+        const row = matriz[i];
+        linhasGlobais.push({
+            indexOriginal: i + 1,
+            dados: row
+        });
+
+        if (indicePedidoFaturado !== -1) {
+            const numPed = String(row[indicePedidoFaturado]).trim();
+            if (numPed) mapaPedidosTotal[numPed] = (mapaPedidosTotal[numPed] || 0) + 1;
+        }
+    }
+
+    let qtdMultiplos = 0;
+    for (let ped in mapaPedidosTotal) {
+        if (mapaPedidosTotal[ped] > 1) qtdMultiplos++;
+    }
+
+    if (kpiQtdMultiplosContainer && kpiQtdMultiplos) {
+        if (qtdMultiplos > 0) {
+            kpiQtdMultiplos.innerText = qtdMultiplos;
+            kpiQtdMultiplosContainer.style.display = 'block';
+        } else {
+            kpiQtdMultiplosContainer.style.display = 'none';
+        }
+    }
+
+    // Etapa 2: Ordenar (Múltiplos no Topo, depois Unitários)
+    linhasGlobais.sort((a, b) => {
+        let pedA = a.dados[indicePedidoFaturado] ? String(a.dados[indicePedidoFaturado]).trim() : "";
+        let pedB = b.dados[indicePedidoFaturado] ? String(b.dados[indicePedidoFaturado]).trim() : "";
+        
+        let countA = mapaPedidosTotal[pedA] || 0;
+        let countB = mapaPedidosTotal[pedB] || 0;
+
+        let isMultiploA = countA > 1;
+        let isMultiploB = countB > 1;
+
+        if (isMultiploA && !isMultiploB) return -1;
+        if (!isMultiploA && isMultiploB) return 1;
+        
+        if (isMultiploA && isMultiploB) {
+            if (pedA < pedB) return -1;
+            if (pedA > pedB) return 1;
+            return 0;
+        }
+        return 0;
+    });
+
+    // Etapa 3: Desenhar a tabela já agrupada e com as cores limitadas aos múltiplos
+    let ultimoPedidoMultiplo = "";
+    let grupoCorAtual = 1; 
+
+    linhasGlobais.forEach((linhaObj) => {
+      let tr = document.createElement('tr');
+      tr.dataset.linhaOriginal = linhaObj.indexOriginal; 
+
+      const row = linhaObj.dados;
+      let statusValue = indiceStatus !== -1 ? String(row[indiceStatus]).trim() : "";
+      
+      let avaliacaoValue = "";
+      if (indiceColunaAvaliacao !== -1) {
+          avaliacaoValue = String(row[indiceColunaAvaliacao]).trim().toLowerCase();
+      }
+      
+      const pedValue = indicePedidoFaturado !== -1 ? String(row[indicePedidoFaturado]).trim() : "";
+      const isMultiplo = (mapaPedidosTotal[pedValue] > 1);
+
+      if (isMultiplo) {
+          if (pedValue !== ultimoPedidoMultiplo) {
+              grupoCorAtual = grupoCorAtual === 1 ? 2 : 1; 
+              ultimoPedidoMultiplo = pedValue;
+          }
+          tr.classList.add(`linha-multiplo-grupo-${grupoCorAtual}`);
+      }
+      
+      let isConferida = false;
+      let isForaCarga = false;
+
+      if (statusValue.includes("Divergência") || statusValue.includes("Não Encontrado")) {
+          isForaCarga = true;
+          tr.style.display = 'none'; 
+      } else if (avaliacaoValue === 'não receber' || avaliacaoValue === 'nao receber' || statusValue === 'Bloqueado') {
+          if (indiceColunaMercadoria !== -1) {
+              recusasInterceptadas.add(String(row[indiceColunaMercadoria]).trim());
+          }
+      } else {
+          totalItensCarga++;
+          if (statusValue === "Conferido") {
+             tr.classList.add('linha-conferida');
+             isConferida = true;
+             itensConferidosCarga++;
+             if (indicePedidoFaturado !== -1) {
+                 mapaPedidosConferidos[pedValue] = (mapaPedidosConferidos[pedValue] || 0) + 1;
+             }
+          }
+      }
+
+      for (let j = 0; j < row.length; j++) {
+        let td = document.createElement('td');
+        let txt = row[j];
+        
+        // Injeção da Tag MSPC
+        if (j === indicePedidoFaturado) {
+           let tagHtml = "";
+           if (indiceMspc !== -1 && row[indiceMspc]) {
+               tagHtml = `<span class="tag-mspc">MSPC</span>`;
+               tr.dataset.mspc = 'true';
+           } else {
+               tr.dataset.mspc = 'false';
+           }
+           td.innerHTML = `${txt} ${tagHtml}`;
+        } else {
+           td.innerText = txt;
+        }
+        
+        tr.appendChild(td);
+      }
+      if (tabelaCorpo) tabelaCorpo.appendChild(tr);
+    });
+    
+    atualizarProgresso();
+    carregarDivergenciasAnteriores(cargaAtual);
+
+    if (containerTabela) containerTabela.style.display = 'block';
+    if (kpiContainer) kpiContainer.style.display = 'grid';
+    if (containerProgresso) containerProgresso.style.display = 'block';
+    if (tableControls) tableControls.style.display = 'flex';
+    if (containerSwitchVisao) containerSwitchVisao.style.display = 'flex';
+
+    if (selectAbas && selectAbas.dataset.finalizada === 'true') {
+        setTimeout(() => {
+           if (typeof mostrarResumoFinal === 'function') {
+               mostrarResumoFinal();
+           }
+        }, 800);
+    }
+  }
+
+  if (filtroTabela) {
+    filtroTabela.addEventListener('change', function() {
+      const modo = this.value;
+      if (!tabelaCorpo) return;
+      const linhas = tabelaCorpo.querySelectorAll('tr');
+      
+      for (let i = 0; i < linhas.length; i++) {
+        const linha = linhas[i];
+        const tds = linha.querySelectorAll('td');
+        
+        const statusText = indiceStatus !== -1 && tds[indiceStatus] ? tds[indiceStatus].textContent.trim() : "";
+        if (statusText.includes("Divergência") || statusText.includes("Não Encontrado")) {
+           linha.style.display = 'none';
+           continue;
+        }
+
+        let isRecusar = false;
+        if (indiceColunaAvaliacao !== -1 && tds[indiceColunaAvaliacao]) {
+           const aval = tds[indiceColunaAvaliacao].textContent.trim().toLowerCase();
+           if (aval === 'não receber' || aval === 'nao receber' || statusText === 'Bloqueado') isRecusar = true;
+        }
+        
+        const isConferido = linha.classList.contains('linha-conferida');
+        const isMspc = linha.dataset.mspc === 'true';
+
+        if (modo === 'todos') {
+          linha.style.display = '';
+        } else if (modo === 'conferidos') {
+          linha.style.display = isConferido ? '' : 'none';
+        } else if (modo === 'pendentes') {
+          linha.style.display = (!isConferido && !isRecusar) ? '' : 'none';
+        } else if (modo === 'recusar') {
+          linha.style.display = isRecusar ? '' : 'none';
+        } else if (modo === 'mspc') {
+          linha.style.display = isMspc ? '' : 'none';
+        }
+      }
+    });
+  }
+</script>

@@ -1,0 +1,490 @@
+<script>
+  // ============================================================================
+  // SCRIPT: MÉTRICAS, RESUMOS E DASHBOARDS (COM LEITURA SINCRONIZADA FLASH E VEREDITO)
+  // ============================================================================
+
+  // --- NOVA FUNÇÃO DE LEITURA (MUITO MAIS RÁPIDA) ---
+  function obterSetRecebidosAba(callback, forceArray = null) {
+      if (forceArray !== null) {
+          callback(new Set(forceArray));
+          return;
+      }
+      
+      if (typeof mostrarLoader === 'function') mostrarLoader("A sincronizar com a Lista de Chegada...\nPor favor, aguarde.");
+      if (statusMensagem) statusMensagem.innerText = "A carregar auditoria sistémica local da carga...";
+      
+      google.script.run
+          .withSuccessHandler(function(recebidos) {
+              if (typeof esconderLoader === 'function') esconderLoader();
+              if (statusMensagem) statusMensagem.innerText = "";
+              callback(new Set(recebidos));
+          })
+          .withFailureHandler(function(e) {
+              if (typeof esconderLoader === 'function') esconderLoader();
+              if (statusMensagem) statusMensagem.innerText = "";
+              callback(new Set());
+          })
+          .getTagsRecebidasPorAba(cargaAtual);
+  }
+
+  // --- FUNÇÃO AUXILIAR PARA CRIAR A CHAVE COMPOSTA (PEDIDO|ETIQUETA) NO FRONTEND ---
+  function getChaveSistemica(linhaObj) {
+      const ped = linhaObj.dados[indicePedidoFaturado] ? String(linhaObj.dados[indicePedidoFaturado]).trim() : "";
+      const merc = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
+      return ped + "|" + merc;
+  }
+
+  // --- FUNÇÃO AUXILIAR DE CÁLCULO MICRO ---
+  function calcularMetricasMicro() {
+    let pedCompletosPedidos = [];
+    let multCompletosPedidos = [];
+    let multParciaisPedidos = [];
+
+    for (const pedido in mapaPedidosTotal) {
+      const total = mapaPedidosTotal[pedido];
+      const conferidos = mapaPedidosConferidos[pedido] || 0;
+
+      if (conferidos === total && total > 0) {
+        pedCompletosPedidos.push(pedido);
+        if (total > 1) {
+          multCompletosPedidos.push(pedido);
+        }
+      } else if (conferidos < total) {
+        if (total > 1) {
+          multParciaisPedidos.push(pedido);
+        }
+      }
+    }
+    return { pedCompletosPedidos, multCompletosPedidos, multParciaisPedidos };
+  }
+
+  // --- LÓGICA DO RESUMO FINAL (MODAL) ---
+  function mostrarResumoFinal(tagsSincronizadasSet = null) {
+      obterSetRecebidosAba(function(mspcSet) {
+          const porcentagem = totalItensCarga === 0 ? 0 : Math.round((itensConferidosCarga / totalItensCarga) * 100);
+          
+          const linhasConferidas = linhasGlobais.filter(linhaObj => {
+              const mercValue = indiceColunaMercadoria !== -1 && linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim().toLowerCase() : "";
+              if (mercValue === "" || mercValue === "mercadoria código" || mercValue === "mercadoria codigo") return false;
+
+              const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+              if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
+              const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+              return trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+          });
+
+          const linhasNaoConferidas = linhasGlobais.filter(linhaObj => {
+              const mercValue = indiceColunaMercadoria !== -1 && linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim().toLowerCase() : "";
+              if (mercValue === "" || mercValue === "mercadoria código" || mercValue === "mercadoria codigo") return false;
+
+              const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+              if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
+              const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+              const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+              return !isConferido;
+          });
+
+          const linhasRecusasBipadas = linhasGlobais.filter(linhaObj => {
+              const mercadoria = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
+              return recusasInterceptadas.has(mercadoria);
+          });
+
+          const metricas = calcularMetricasMicro();
+          const linhasParciais = linhasGlobais.filter(l => metricas.multParciaisPedidos.includes(String(l.dados[indicePedidoFaturado]).trim()));
+
+          if (resumoTaxaConclusao) resumoTaxaConclusao.innerText = porcentagem + '%';
+          if (resumoItensAuditados) resumoItensAuditados.innerText = itensConferidosCarga + ' / ' + totalItensCarga;
+          if (resumoPendentesGeral) resumoPendentesGeral.innerText = linhasNaoConferidas.length;
+          if (resumoParciais) resumoParciais.innerText = metricas.multParciaisPedidos.length;
+          if (resumoRecusados) resumoRecusados.innerText = linhasRecusasBipadas.length;
+          
+          if (resumoNaoEncontrados) resumoNaoEncontrados.innerText = divergenciasBipadas.size;
+
+          const bipadoSistemico = linhasConferidas.filter(l => mspcSet.has(getChaveSistemica(l)));
+          const bipadoNaoSistemico = linhasConferidas.filter(l => !mspcSet.has(getChaveSistemica(l)));
+          const pendenteSistemico = linhasNaoConferidas.filter(l => mspcSet.has(getChaveSistemica(l)));
+          
+          const pendenteNaoSistemico = linhasNaoConferidas.filter(l => !mspcSet.has(getChaveSistemica(l)));
+
+          let secSist = document.getElementById('seccaoSistemicaResumo');
+          if (!secSist) {
+              secSist = document.createElement('div');
+              secSist.id = 'seccaoSistemicaResumo';
+              const parentGrid = modalResumoFinal.querySelector('.micro-grid').parentNode;
+              const insertBeforeTarget = document.getElementById('detalhesResumoContainer');
+              parentGrid.insertBefore(secSist, insertBeforeTarget);
+          }
+          
+          secSist.innerHTML = `
+              <h3 style="margin-top: 24px; margin-bottom: 12px; color: var(--text-main); font-size: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; text-align: left; text-transform: uppercase; letter-spacing: 0.5px;">Auditoria do Lista de Chegada</h3>
+              <div class="micro-grid" style="text-align: left; gap: 10px;">
+                  <div class="micro-card clickable" id="cardNovoBipSist" style="padding: 10px 14px; border-left: 3px solid var(--emerald);">
+                    <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Bipado & No Lista de Chegada</span>
+                    <span class="micro-card-value" style="color: var(--emerald); font-size: 20px;">${bipadoSistemico.length}</span>
+                  </div>
+                  <div class="micro-card clickable" id="cardNovoBipNaoSist" style="padding: 10px 14px; border-left: 3px solid var(--brand-accent);">
+                    <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Bipado & Falta Entrada</span>
+                    <span class="micro-card-value" style="color: var(--brand-accent); font-size: 20px;">${bipadoNaoSistemico.length}</span>
+                  </div>
+                  <div class="micro-card clickable" id="cardNovoFuro" style="padding: 10px 14px; border-left: 3px solid var(--red-alert);">
+                    <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Furo (No Lista de Chegada Sem Bipe)</span>
+                    <span class="micro-card-value" style="color: var(--red-alert); font-size: 20px;">${pendenteSistemico.length}</span>
+                  </div>
+                  
+                  <div class="micro-card clickable" id="cardNovoFaltaConfirmada" style="padding: 10px 14px; border-left: 4px solid var(--red-alert); background-color: rgba(239, 68, 68, 0.05); grid-column: span 2;">
+                    <span class="micro-card-label" style="font-size: 12px; margin-bottom: 4px; color: var(--red-alert); font-weight: bold;">VEREDITO: FALTAS CONFIRMADAS</span>
+                    <span class="micro-card-value" style="color: var(--red-alert); font-size: 24px;">${pendenteNaoSistemico.length}</span>
+                    <span style="font-size: 11px; color: var(--text-support); display: block; margin-top: 4px;">Não chegaram fisicamente à doca e não deram entrada sistémica.</span>
+                  </div>
+              </div>
+          `;
+
+          if (detalhesResumoContainer) detalhesResumoContainer.style.display = 'none';
+
+          const mostrarDetalhesResumo = (titulo, listaLinhas, cardId, tipo = 'tabela_completa') => {
+              modalResumoFinal.querySelectorAll('.micro-card').forEach(c => c.classList.remove('active'));
+              const cardAtivo = document.getElementById(cardId);
+              if (cardAtivo) cardAtivo.classList.add('active');
+              
+              if (detalhesResumoTitulo) detalhesResumoTitulo.innerText = titulo;
+              if (tabelaDetalhesResumoCabecalho) tabelaDetalhesResumoCabecalho.innerHTML = '';
+              if (tabelaDetalhesResumo) tabelaDetalhesResumo.innerHTML = '';
+              
+              if (listaLinhas.length === 0) {
+                   if (tabelaDetalhesResumo) tabelaDetalhesResumo.innerHTML = '<tr><td colspan="4" style="color: var(--text-support); text-align: center; font-style: italic; padding: 15px;">Nenhum registo encontrado para esta categoria.</td></tr>';
+              } else {
+                   if (tipo === 'tabela_completa') {
+                       if (tabelaDetalhesResumoCabecalho) {
+                           tabelaDetalhesResumoCabecalho.innerHTML = `
+                              <tr>
+                                  <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Pedido Faturado</th>
+                                  <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Mercadoria Código</th>
+                                  <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Produto Nome</th>
+                                  <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">No Lista de Chegada</th>
+                              </tr>
+                           `;
+                       }
+                       
+                       let grupoCorAtual = 1;
+                       let ultimoPedido = "";
+                       
+                       listaLinhas.forEach(linhaObj => {
+                           const pedAtual = linhaObj.dados[indicePedidoFaturado] ? String(linhaObj.dados[indicePedidoFaturado]).trim() : "";
+                           const mercadoria = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
+                           const produto = linhaObj.dados[indiceColunaProduto] || "";
+                           const chaveCheck = getChaveSistemica(linhaObj);
+                           const sistemico = mspcSet.has(chaveCheck) ? '<span style="color:var(--emerald); font-weight:bold;">✅ Sim</span>' : '<span style="color:var(--brand-accent); font-weight:bold;">⏳ Não</span>';
+                           
+                           if (pedAtual !== ultimoPedido) {
+                               grupoCorAtual = grupoCorAtual === 1 ? 2 : 1;
+                               ultimoPedido = pedAtual;
+                           }
+                           
+                           const classeCor = `linha-multiplo-grupo-${grupoCorAtual}`;
+                           
+                           if (tabelaDetalhesResumo) {
+                               tabelaDetalhesResumo.innerHTML += `
+                                  <tr class="${classeCor}">
+                                      <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">${pedAtual}</td>
+                                      <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-main);">${mercadoria}</td>
+                                      <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${produto}</td>
+                                      <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">${sistemico}</td>
+                                  </tr>
+                               `;
+                           }
+                       });
+                   } else if (tipo === 'lista_simples') {
+                       listaLinhas.forEach(item => {
+                           if (tabelaDetalhesResumo) tabelaDetalhesResumo.innerHTML += `<tr><td style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">Etiqueta lida (Não identificada): <strong>${item}</strong></td></tr>`;
+                       });
+                   }
+              }
+              if (detalhesResumoContainer) detalhesResumoContainer.style.display = 'block';
+          };
+
+          setTimeout(() => {
+              document.getElementById('cardResumoTaxa').onclick = () => mostrarDetalhesResumo('Todos os Itens Conferidos', linhasConferidas, 'cardResumoTaxa');
+              document.getElementById('cardResumoAuditados').onclick = () => mostrarDetalhesResumo('Todos os Itens Conferidos', linhasConferidas, 'cardResumoAuditados');
+              document.getElementById('cardResumoPendentes').onclick = () => mostrarDetalhesResumo('Itens Pendentes (Não bipados)', linhasNaoConferidas, 'cardResumoPendentes');
+              document.getElementById('cardResumoParciais').onclick = () => mostrarDetalhesResumo('Pedidos Parciais Incompletos', linhasParciais, 'cardResumoParciais');
+              document.getElementById('cardResumoRecusados').onclick = () => mostrarDetalhesResumo('Itens Recusados (Bloqueados)', linhasRecusasBipadas, 'cardResumoRecusados');
+              
+              if (document.getElementById('cardResumoNaoEncontrados')) {
+                  document.getElementById('cardResumoNaoEncontrados').onclick = () => mostrarDetalhesResumo('Divergências (Etiquetas não encontradas)', Array.from(divergenciasBipadas), 'cardResumoNaoEncontrados', 'lista_simples');
+              }
+              
+              document.getElementById('cardNovoBipSist').onclick = () => mostrarDetalhesResumo('Itens Bipados no Lista de Chegada', bipadoSistemico, 'cardNovoBipSist');
+              document.getElementById('cardNovoBipNaoSist').onclick = () => mostrarDetalhesResumo('Itens Bipados Fora do Lista de Chegada', bipadoNaoSistemico, 'cardNovoBipNaoSist');
+              document.getElementById('cardNovoFuro').onclick = () => mostrarDetalhesResumo('FURO: Constam No Lista de Chegada SEM serem Bipados', pendenteSistemico, 'cardNovoFuro');
+              
+              // Clique no Veredito
+              document.getElementById('cardNovoFaltaConfirmada').onclick = () => mostrarDetalhesResumo('FALTAS CONFIRMADAS (Não bipado e Não consta no Lista de Chegada)', pendenteNaoSistemico, 'cardNovoFaltaConfirmada');
+          }, 0);
+
+          if (modalResumoFinal) modalResumoFinal.style.display = 'flex';
+      }, tagsSincronizadasSet);
+  }
+
+  // --- BOTÕES DE AÇÃO (FINALIZAÇÃO E NAVEGAÇÃO) ---
+  if (btnFinalizarAuditoria) {
+      btnFinalizarAuditoria.addEventListener('click', function() {
+          if (!cargaAtual) return;
+          if (modalConfirmacao) modalConfirmacao.style.display = 'flex';
+      });
+  }
+
+  if (btnCancelarFinalizacao) {
+      btnCancelarFinalizacao.addEventListener('click', function() {
+          if (modalConfirmacao) modalConfirmacao.style.display = 'none';
+      });
+  }
+
+  if (btnConfirmarFinalizacao) {
+      btnConfirmarFinalizacao.addEventListener('click', function() {
+          if (modalConfirmacao) modalConfirmacao.style.display = 'none';
+          
+          if (selectAbas) {
+              selectAbas.dataset.finalizada = 'true';
+              const label = document.getElementById('labelCargaSelecionada');
+              if (label) {
+                  label.innerHTML = `${selectAbas.value} <span style="color: var(--emerald); font-size: 12px; margin-left: 8px;">(Concluída)</span>`;
+              }
+          }
+          
+          if (typeof mostrarLoader === 'function') mostrarLoader("A finalizar auditoria e a consolidar cruzamentos de estoque.\nIsto pode demorar alguns segundos...");
+          if (statusMensagem) statusMensagem.innerText = "A finalizar auditoria e a consolidar cruzamentos de estoque. Aguarde...";
+          
+          google.script.run
+              .withSuccessHandler(function(recebidosArr) {
+                  if (typeof esconderLoader === 'function') esconderLoader();
+                  if (statusMensagem) statusMensagem.innerText = "";
+                  mostrarResumoFinal(new Set(recebidosArr));
+              })
+              .withFailureHandler(function(erro) {
+                  if (typeof esconderLoader === 'function') esconderLoader();
+                  if (statusMensagem) statusMensagem.innerText = "Erro ao finalizar: " + erro.message;
+                  mostrarResumoFinal(); 
+              })
+              .finalizarCargaStatus(cargaAtual);
+      });
+  }
+
+  if (btnContinuarAuditoria) {
+      btnContinuarAuditoria.addEventListener('click', function() {
+          if (!cargaAtual) return;
+          
+          if (selectAbas) {
+              selectAbas.dataset.finalizada = 'false';
+              const label = document.getElementById('labelCargaSelecionada');
+              if (label) {
+                  label.innerHTML = `${selectAbas.value} <span style="color: var(--brand-accent); font-size: 12px; margin-left: 8px;">(Em Aberto)</span>`;
+              }
+          }
+          
+          // ====================================================================
+          // RESTAURAÇÃO: Faz o botão "Finalizar" voltar a aparecer no cabeçalho
+          // ====================================================================
+          if (btnFinalizarAuditoria) btnFinalizarAuditoria.style.display = 'block';
+          
+          if (modalResumoFinal) modalResumoFinal.style.display = 'none';
+          google.script.run.reabrirCargaStatus(cargaAtual);
+      });
+  }
+
+  if (btnVoltarSelecao) {
+      btnVoltarSelecao.addEventListener('click', function() {
+          if (modalResumoFinal) modalResumoFinal.style.display = 'none';
+          
+          if (tabelaCabecalho) tabelaCabecalho.innerHTML = "";
+          if (tabelaCorpo) tabelaCorpo.innerHTML = "";
+          if (listaNaoEncontrados) listaNaoEncontrados.innerHTML = "";
+          if (containerNaoEncontrados) containerNaoEncontrados.style.display = 'none';
+          if (resultadoBipe) resultadoBipe.innerText = "";
+          
+          if (kpiContainer) kpiContainer.style.display = 'none';
+          if (containerProgresso) containerProgresso.style.display = 'none';
+          if (containerTabela) containerTabela.style.display = 'none';
+          if (tableControls) tableControls.style.display = 'none';
+          if (containerSwitchVisao) containerSwitchVisao.style.display = 'none';
+          if (visaoBipar) visaoBipar.style.display = 'none';
+          if (btnFinalizarAuditoria) btnFinalizarAuditoria.style.display = 'none';
+          if (statusMensagem) statusMensagem.innerText = "";
+          
+          cargaAtual = "";
+          
+          if (selectAbas) {
+              selectAbas.value = "";
+              selectAbas.dataset.finalizada = "false";
+              const label = document.getElementById('labelCargaSelecionada');
+              if (label) label.innerHTML = "-- Selecionar Carga --";
+          }
+          
+          if (btnCarregar) btnCarregar.disabled = true;
+      });
+  }
+
+  // --- LÓGICA DO RELATÓRIO MICRO ---
+  if (btnRelatorioMicro) {
+      btnRelatorioMicro.addEventListener('click', function() {
+        obterSetRecebidosAba(function(mspcSet) {
+            const metricas = calcularMetricasMicro();
+            
+            const linhasConferidas = linhasGlobais.filter(linhaObj => {
+                const mercValue = indiceColunaMercadoria !== -1 && linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim().toLowerCase() : "";
+                if (mercValue === "" || mercValue === "mercadoria código" || mercValue === "mercadoria codigo") return false;
+
+                const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+                if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
+                const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+                return trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+            });
+
+            const linhasNaoConferidas = linhasGlobais.filter(linhaObj => {
+                const mercValue = indiceColunaMercadoria !== -1 && linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim().toLowerCase() : "";
+                if (mercValue === "" || mercValue === "mercadoria código" || mercValue === "mercadoria codigo") return false;
+
+                const status = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+                if (status.includes("Divergência") || status.includes("Não Encontrado")) return false; 
+                const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+                const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (status === "Conferido");
+                return !isConferido;
+            });
+
+            if (microPedidosCompletos) microPedidosCompletos.innerText = metricas.pedCompletosPedidos.length;
+            if (microMultiplosCompletos) microMultiplosCompletos.innerText = metricas.multCompletosPedidos.length;
+            if (microMultiplosParciais) microMultiplosParciais.innerText = metricas.multParciaisPedidos.length;
+            if (microRecusasBipadas) microRecusasBipadas.innerText = recusasInterceptadas.size;
+            if (microNaoEncontrados) microNaoEncontrados.innerText = divergenciasBipadas.size;
+
+            const pendenteSistemico = linhasNaoConferidas.filter(l => mspcSet.has(getChaveSistemica(l)));
+            const bipadoNaoSistemico = linhasConferidas.filter(l => !mspcSet.has(getChaveSistemica(l)));
+            const bipadoSistemico = linhasConferidas.filter(l => mspcSet.has(getChaveSistemica(l)));
+            
+            const pendenteNaoSistemico = linhasNaoConferidas.filter(l => !mspcSet.has(getChaveSistemica(l)));
+
+            let secSistMicro = document.getElementById('seccaoSistemicaMicro');
+            if (!secSistMicro) {
+                secSistMicro = document.createElement('div');
+                secSistMicro.id = 'seccaoSistemicaMicro';
+                const parentGrid = modalMicro.querySelector('.micro-grid').parentNode;
+                const insertBeforeTarget = document.getElementById('detalhesMicroContainer');
+                parentGrid.insertBefore(secSistMicro, insertBeforeTarget);
+            }
+            
+            secSistMicro.innerHTML = `
+                <h3 style="margin-top: 24px; margin-bottom: 12px; color: var(--text-main); font-size: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; text-align: left; text-transform: uppercase; letter-spacing: 0.5px;">Auditoria do Lista de Chegada</h3>
+                <div class="micro-grid" style="text-align: left; gap: 10px;">
+                    <div class="micro-card clickable" id="cardMicroBipSist" style="border-left: 3px solid var(--emerald);">
+                      <span class="micro-card-label">Bipado & No Lista de Chegada</span>
+                      <span class="micro-card-value" style="color: var(--emerald);">${bipadoSistemico.length}</span>
+                    </div>
+                    <div class="micro-card clickable" id="cardMicroBipNaoSist" style="border-left: 3px solid var(--brand-accent);">
+                      <span class="micro-card-label">Bipado & Falta Entrada</span>
+                      <span class="micro-card-value" style="color: var(--brand-accent);">${bipadoNaoSistemico.length}</span>
+                    </div>
+                    <div class="micro-card clickable" id="cardMicroFuroSist" style="border-left: 3px solid var(--red-alert);">
+                      <span class="micro-card-label">Furo (No Lista de Chegada Sem Bipe)</span>
+                      <span class="micro-card-value" style="color: var(--red-alert);">${pendenteSistemico.length}</span>
+                    </div>
+                    
+                    <div class="micro-card clickable" id="cardMicroFaltaConfirmada" style="padding: 10px 14px; border-left: 4px solid var(--red-alert); background-color: rgba(239, 68, 68, 0.05); grid-column: span 2;">
+                      <span class="micro-card-label" style="font-size: 12px; margin-bottom: 4px; color: var(--red-alert); font-weight: bold;">VEREDITO: FALTAS CONFIRMADAS</span>
+                      <span class="micro-card-value" style="color: var(--red-alert); font-size: 24px;">${pendenteNaoSistemico.length}</span>
+                    </div>
+                </div>
+            `;
+
+            if (detalhesMicroContainer) detalhesMicroContainer.style.display = 'none';
+
+            const mostrarDetalhes = (titulo, listaLinhas, cardId, tipo = 'tabela_completa') => {
+                modalMicro.querySelectorAll('.micro-card').forEach(c => c.classList.remove('active'));
+                const cardAtivo = document.getElementById(cardId);
+                if (cardAtivo) cardAtivo.classList.add('active');
+                
+                if (detalhesMicroTitulo) detalhesMicroTitulo.innerText = titulo;
+                if (tabelaDetalhesMicroCabecalho) tabelaDetalhesMicroCabecalho.innerHTML = '';
+                if (tabelaDetalhesMicro) tabelaDetalhesMicro.innerHTML = '';
+                
+                if (listaLinhas.length === 0) {
+                     if (tabelaDetalhesMicro) tabelaDetalhesMicro.innerHTML = '<tr><td colspan="4" style="color: var(--text-support); text-align: center; font-style: italic; padding: 15px;">Nenhum registo encontrado para esta categoria.</td></tr>';
+                } else {
+                     if (tipo === 'tabela_completa') {
+                         if (tabelaDetalhesMicroCabecalho) {
+                             tabelaDetalhesMicroCabecalho.innerHTML = `
+                                <tr>
+                                    <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Pedido Faturado</th>
+                                    <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Mercadoria Código</th>
+                                    <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">Produto Nome</th>
+                                    <th style="background-color: var(--bg-global); color: var(--text-support); font-weight: 600; text-transform: uppercase; font-size: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1;">No Lista de Chegada</th>
+                                </tr>
+                             `;
+                         }
+                         
+                         let grupoCorAtual = 1;
+                         let ultimoPedido = "";
+                         
+                         listaLinhas.forEach(linhaObj => {
+                             const pedAtual = linhaObj.dados[indicePedidoFaturado] ? String(linhaObj.dados[indicePedidoFaturado]).trim() : "";
+                             const mercadoria = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
+                             const produto = linhaObj.dados[indiceColunaProduto] || "";
+                             const chaveCheck = getChaveSistemica(linhaObj);
+                             const sistemico = mspcSet.has(chaveCheck) ? '<span style="color:var(--emerald); font-weight:bold;">✅ Sim</span>' : '<span style="color:var(--brand-accent); font-weight:bold;">⏳ Não</span>';
+                             
+                             if (pedAtual !== ultimoPedido) {
+                                 grupoCorAtual = grupoCorAtual === 1 ? 2 : 1;
+                                 ultimoPedido = pedAtual;
+                             }
+                             
+                             const classeCor = `linha-multiplo-grupo-${grupoCorAtual}`;
+                             
+                             if (tabelaDetalhesMicro) {
+                                 tabelaDetalhesMicro.innerHTML += `
+                                    <tr class="${classeCor}">
+                                        <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">${pedAtual}</td>
+                                        <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-weight: bold; color: var(--text-main);">${mercadoria}</td>
+                                        <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${produto}</td>
+                                        <td style="padding: 12px 16px; border-bottom: 1px solid var(--border-color);">${sistemico}</td>
+                                    </tr>
+                                 `;
+                             }
+                         });
+                     } 
+                     else if (tipo === 'lista_simples') {
+                         listaLinhas.forEach(item => {
+                             if (tabelaDetalhesMicro) tabelaDetalhesMicro.innerHTML += `<tr><td style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">Etiqueta lida (Não identificada): <strong>${item}</strong></td></tr>`;
+                         });
+                     }
+                }
+                if (detalhesMicroContainer) detalhesMicroContainer.style.display = 'block';
+            };
+
+            setTimeout(() => {
+                const linhasPedCompletos = linhasGlobais.filter(linhaObj => metricas.pedCompletosPedidos.includes(String(linhaObj.dados[indicePedidoFaturado]).trim()));
+                const linhasMultCompletos = linhasGlobais.filter(linhaObj => metricas.multCompletosPedidos.includes(String(linhaObj.dados[indicePedidoFaturado]).trim()));
+                const linhasParciaisMicro = linhasGlobais.filter(linhaObj => metricas.multParciaisPedidos.includes(String(linhaObj.dados[indicePedidoFaturado]).trim()));
+                const linhasRecusasMicro = linhasGlobais.filter(linhaObj => recusasInterceptadas.has(String(linhaObj.dados[indiceColunaMercadoria]).trim()));
+
+                document.getElementById('cardPedidosCompletos').onclick = () => mostrarDetalhes('Pedidos 100% Bipados', linhasPedCompletos, 'cardPedidosCompletos');
+                document.getElementById('cardMultiplosCompletos').onclick = () => mostrarDetalhes('Pedidos Múltiplos Completos', linhasMultCompletos, 'cardMultiplosCompletos');
+                document.getElementById('cardMultiplosParciais').onclick = () => mostrarDetalhes('Pedidos Parciais Incompletos', linhasParciaisMicro, 'cardMultiplosParciais');
+                document.getElementById('cardRecusasBipadas').onclick = () => mostrarDetalhes('Pedidos a serem recusados', linhasRecusasMicro, 'cardRecusasBipadas');
+                document.getElementById('cardNaoEncontrados').onclick = () => mostrarDetalhes('Etiquetas não encontradas', Array.from(divergenciasBipadas), 'cardNaoEncontrados', 'lista_simples');
+                
+                document.getElementById('cardMicroBipSist').onclick = () => mostrarDetalhes('Itens Bipados no Lista de Chegada', bipadoSistemico, 'cardMicroBipSist');
+                document.getElementById('cardMicroBipNaoSist').onclick = () => mostrarDetalhes('Itens Bipados Fora do Lista de Chegada', bipadoNaoSistemico, 'cardMicroBipNaoSist');
+                document.getElementById('cardMicroFuroSist').onclick = () => mostrarDetalhes('FURO: Constam No Lista de Chegada SEM serem Bipados', pendenteSistemico, 'cardMicroFuroSist');
+                
+                document.getElementById('cardMicroFaltaConfirmada').onclick = () => mostrarDetalhes('FALTAS CONFIRMADAS', pendenteNaoSistemico, 'cardMicroFaltaConfirmada');
+            }, 0);
+
+            if (modalMicro) modalMicro.style.display = 'flex';
+        });
+      });
+  }
+
+  if (btnFecharModal) {
+      btnFecharModal.addEventListener('click', function() {
+        if (modalMicro) modalMicro.style.display = 'none';
+      });
+  }
+</script>

@@ -1,0 +1,472 @@
+<script>
+  // ============================================================================
+  // SCRIPT: INTERFACE DO UTILIZADOR (UI) E NAVEGAÇÃO
+  // ============================================================================
+
+  // --- TEMA CLARO/ESCURO ---
+  if (typeof checkboxTheme !== 'undefined' && checkboxTheme) {
+    checkboxTheme.addEventListener('change', function(e) {
+      if (e.target.checked) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        if (typeof themeLabel !== 'undefined' && themeLabel) themeLabel.textContent = 'Dark Mode';
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        if (typeof themeLabel !== 'undefined' && themeLabel) themeLabel.textContent = 'Light Mode';
+      }
+      
+      // Força a atualização visual do Gráfico de Volumes para as novas cores
+      if (typeof carregarDashboardVolume === 'function') {
+          carregarDashboardVolume(false); 
+      }
+    });
+  }
+
+  // --- ALTERNÂNCIA DE VISÕES (TABELA VS BIPAR) ---
+  function atualizarVisao() {
+    if (typeof switchVisao !== 'undefined' && switchVisao && switchVisao.checked) {
+      if (typeof textoVisao !== 'undefined' && textoVisao) {
+          textoVisao.classList.remove('text-main');
+          textoVisao.classList.add('text-support');
+      }
+      if (typeof containerTabela !== 'undefined' && containerTabela) containerTabela.style.display = 'none';
+      if (typeof tableControls !== 'undefined' && tableControls) tableControls.style.display = 'none'; 
+      if (typeof visaoBipar !== 'undefined' && visaoBipar) visaoBipar.style.display = 'block';
+      if (typeof inputEtiqueta !== 'undefined' && inputEtiqueta) {
+          inputEtiqueta.value = ""; 
+          inputEtiqueta.focus();
+      }
+    } else {
+      if (typeof textoVisao !== 'undefined' && textoVisao) {
+          textoVisao.classList.add('text-main');
+          textoVisao.classList.remove('text-support');
+      }
+      if (typeof containerTabela !== 'undefined' && containerTabela) containerTabela.style.display = 'block';
+      if (typeof tableControls !== 'undefined' && tableControls) tableControls.style.display = 'flex'; 
+      if (typeof visaoBipar !== 'undefined' && visaoBipar) visaoBipar.style.display = 'none';
+    }
+  }
+  if (typeof switchVisao !== 'undefined' && switchVisao) switchVisao.addEventListener('change', atualizarVisao);
+
+  // --- LÓGICA DO FILTRO DA TABELA ---
+  function aplicarFiltroTabela() {
+    if (typeof filtroTabela === 'undefined' || !filtroTabela || typeof tabelaCorpo === 'undefined' || !tabelaCorpo) return;
+    const valorFiltro = filtroTabela.value;
+    const linhas = tabelaCorpo.querySelectorAll('tr');
+    
+    linhas.forEach(linha => {
+      const isConferida = linha.classList.contains('linha-conferida');
+      let isRecusar = false;
+      
+      if (typeof indiceColunaAvaliacao !== 'undefined' && indiceColunaAvaliacao !== -1) {
+        const celulas = linha.querySelectorAll('td');
+        if (celulas[indiceColunaAvaliacao]) {
+          const avaliacaoTxt = celulas[indiceColunaAvaliacao].textContent.trim().toLowerCase();
+          if (avaliacaoTxt === 'não receber' || avaliacaoTxt === 'nao receber') {
+            isRecusar = true;
+          }
+        }
+      }
+
+      if (valorFiltro === 'todos') {
+        linha.style.display = '';
+      } else if (valorFiltro === 'conferidos') {
+        linha.style.display = isConferida ? '' : 'none';
+      } else if (valorFiltro === 'pendentes') {
+        linha.style.display = !isConferida ? '' : 'none';
+      } else if (valorFiltro === 'recusar') {
+        linha.style.display = isRecusar ? '' : 'none';
+      }
+    });
+  }
+  if (typeof filtroTabela !== 'undefined' && filtroTabela) filtroTabela.addEventListener('change', aplicarFiltroTabela);
+
+  // --- FECHAR MODAIS DE ALERTA ---
+  if (typeof btnFecharAlertaEtiqueta !== 'undefined' && btnFecharAlertaEtiqueta) {
+      btnFecharAlertaEtiqueta.addEventListener('click', function() {
+          if (typeof modalAlertaEtiqueta !== 'undefined' && modalAlertaEtiqueta) modalAlertaEtiqueta.style.display = 'none';
+          if (typeof inputEtiqueta !== 'undefined' && inputEtiqueta) inputEtiqueta.focus();
+      });
+  }
+
+  if (typeof btnFecharAlertaUpload !== 'undefined' && btnFecharAlertaUpload) {
+      btnFecharAlertaUpload.addEventListener('click', function() {
+          if (typeof modalAlertaUpload !== 'undefined' && modalAlertaUpload) modalAlertaUpload.style.display = 'none';
+      });
+  }
+
+  // --- LÓGICA DE NAVEGAÇÃO E PAGINAÇÃO (SIDEBAR SPA) ---
+  const navItems = document.querySelectorAll('.nav-item');
+  const viewSections = document.querySelectorAll('.view-section');
+  const globalPageTitle = document.getElementById('globalPageTitle');
+  const globalPageSubtitle = document.getElementById('globalPageSubtitle');
+
+  const viewTitles = {
+    'view-auditoria': {
+      titulo: 'Painel de Conferência',
+      subtitulo: 'Auditoria Fiscal e Controle de Volumes do CD'
+    },
+    'view-gerencial': {
+      titulo: 'Painel Gerencial',
+      subtitulo: 'Visão estratégica e indicadores globais da operação'
+    }
+  };
+
+  navItems.forEach(item => {
+    item.addEventListener('click', function() {
+      const targetId = this.getAttribute('data-target');
+      if (!targetId) return;
+
+      navItems.forEach(nav => nav.classList.remove('active'));
+      this.classList.add('active');
+
+      viewSections.forEach(view => {
+        view.style.display = 'none';
+      });
+      
+      const targetView = document.getElementById(targetId);
+      if (targetView) {
+        targetView.style.display = 'block';
+      }
+
+      if (viewTitles[targetId]) {
+        if (globalPageTitle) globalPageTitle.innerText = viewTitles[targetId].titulo;
+        if (globalPageSubtitle) globalPageSubtitle.innerText = viewTitles[targetId].subtitulo;
+      }
+      
+      if (targetId === 'view-gerencial') {
+          carregarDashboardVolume(false);
+      }
+    });
+  });
+
+  // --- RENDERIZAÇÃO DO GRÁFICO E KPIs GERENCIAIS COM CACHE ---
+  let chartVolume = null;
+  let chartComparativo = null; 
+  let cacheDashboardGlobais = null; 
+  let isCarregandoDashboard = false;
+
+  window.limparCacheDashboard = function() {
+      cacheDashboardGlobais = null;
+  };
+
+  function carregarDashboardVolume(forcar = false) {
+    if (!forcar && cacheDashboardGlobais) {
+        if (typeof inicializarFiltros === 'function') inicializarFiltros(cacheDashboardGlobais);
+        return;
+    }
+
+    if (isCarregandoDashboard) return;
+    isCarregandoDashboard = true;
+
+    const viewGerencial = document.getElementById('view-gerencial');
+    if (viewGerencial && viewGerencial.style.display !== 'none' && !cacheDashboardGlobais) {
+        if(document.getElementById('dashTotalPedidos')) document.getElementById('dashTotalPedidos').innerText = '...';
+        if(document.getElementById('dashRealPedidos')) document.getElementById('dashRealPedidos').innerText = '...';
+        if(document.getElementById('dashTotalVolumes')) document.getElementById('dashTotalVolumes').innerText = '...';
+        if(document.getElementById('dashRealVolumes')) document.getElementById('dashRealVolumes').innerText = '...';
+    }
+
+    google.script.run
+      .withSuccessHandler(function(dados) {
+          cacheDashboardGlobais = dados; 
+          isCarregandoDashboard = false;
+          
+          if (viewGerencial && viewGerencial.style.display !== 'none') {
+              if (typeof inicializarFiltros === 'function') {
+                  inicializarFiltros(dados); 
+              }
+          }
+      })
+      .getDashboardMetrics();
+  }
+
+  function preencherDashboardVisual(dadosFiltrados) {
+      if(document.getElementById('dashTotalPedidos')) document.getElementById('dashTotalPedidos').innerText = dadosFiltrados.totalPedidos;
+      if(document.getElementById('dashRealPedidos')) document.getElementById('dashRealPedidos').innerText = dadosFiltrados.realPedidos;
+      
+      if(document.getElementById('dashTotalVolumes')) document.getElementById('dashTotalVolumes').innerText = dadosFiltrados.totalVolumes;
+      if(document.getElementById('dashRealVolumes')) document.getElementById('dashRealVolumes').innerText = dadosFiltrados.realVolumes;
+      
+      if(document.getElementById('dashTotalRecusados')) document.getElementById('dashTotalRecusados').innerText = dadosFiltrados.totalRecusados;
+      if(document.getElementById('dashRealRecusados')) document.getElementById('dashRealRecusados').innerText = dadosFiltrados.realRecusados;
+
+      const labels = dadosFiltrados.chartData.map(d => d.carga);
+      const valoresTotais = dadosFiltrados.chartData.map(d => d.volume);
+      const valoresRealizados = dadosFiltrados.chartData.map(d => d.realVolumes); 
+      
+      renderizarGraficoVolume(labels, valoresTotais);
+      renderizarGraficoComparativo(labels, valoresTotais, valoresRealizados); 
+  }
+
+  // --- PLUGIN CUSTOMIZADO PARA EXIBIR RÓTULOS DE DADOS PERMANENTEMENTE ---
+  const pluginDataLabels = {
+      id: 'persistentLabels',
+      afterDatasetsDraw(chart) {
+          const { ctx } = chart;
+          ctx.save();
+          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          ctx.textAlign = 'center';
+          
+          chart.data.datasets.forEach((dataset, i) => {
+              const meta = chart.getDatasetMeta(i);
+              meta.data.forEach((element, index) => {
+                  const data = dataset.data[index];
+
+                  if (data !== undefined && data !== null && data > 0) { 
+                      const pos = element.tooltipPosition();
+                      
+                      if (chart.config.type === 'bar') {
+                          if (i === 0) {
+                              ctx.font = 'bold 12px "Inter", sans-serif';
+                              ctx.textBaseline = 'bottom';
+                              ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a';
+                              
+                              const dataRealizado = chart.data.datasets[1]?.data[index];
+                              if (data !== dataRealizado) {
+                                  ctx.fillText(data, pos.x, pos.y - 6);
+                              }
+                          } else if (i === 1) {
+                              ctx.font = 'bold 12px "Inter", sans-serif';
+                              ctx.textBaseline = 'middle';
+                              ctx.fillStyle = '#ffffff'; 
+                              const centerY = (element.y + element.base) / 2; 
+                              ctx.fillText(data, pos.x, centerY);
+
+                              const total = chart.data.datasets[0].data[index];
+                              const pct = total > 0 ? Math.round((data / total) * 100) : 0;
+                              
+                              ctx.textBaseline = 'top';
+                              ctx.fillStyle = '#10b981'; 
+                              ctx.font = '900 16px "Inter", sans-serif'; 
+                              // Ajustado perfeitamente para não sobrepor a data
+                              ctx.fillText(`${pct}%`, pos.x, chart.chartArea.bottom + 6); 
+                          }
+                      } else {
+                          ctx.font = 'bold 12px "Inter", sans-serif';
+                          ctx.textBaseline = 'bottom';
+                          ctx.fillStyle = dataset.borderColor; 
+                          ctx.fillText(data, pos.x, pos.y - 8);
+                      }
+                  }
+              });
+          });
+          ctx.restore();
+      }
+  };
+
+  // --- GRÁFICO 1: LINHA (TENDÊNCIA/VOLUME) ---
+  function renderizarGraficoVolume(labelsArr, dataArr) {
+      const ctx = document.getElementById('graficoVolumeCargas');
+      if (!ctx) return;
+
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const textColorStrong = isDark ? '#ffffff' : '#0f172a'; 
+
+      const canvasContext = ctx.getContext('2d');
+      const gradient = canvasContext.createLinearGradient(0, 0, 0, 320);
+      gradient.addColorStop(0, 'rgba(249, 115, 22, 0.5)'); 
+      gradient.addColorStop(1, 'rgba(249, 115, 22, 0.0)'); 
+
+      if (chartVolume) {
+          chartVolume.data.labels = labelsArr;
+          chartVolume.data.datasets[0].data = dataArr;
+          chartVolume.data.datasets[0].backgroundColor = gradient;
+          chartVolume.data.datasets[0].borderColor = '#f97316';
+          chartVolume.data.datasets[0].pointBorderColor = '#f97316';
+          chartVolume.options.scales.x.ticks.color = textColorStrong;
+          chartVolume.update();
+      } else {
+          chartVolume = new Chart(ctx, {
+              type: 'line',
+              data: {
+                  labels: labelsArr,
+                  datasets: [{
+                      label: 'Volume Geral Prometido',
+                      data: dataArr,
+                      borderColor: '#f97316', 
+                      backgroundColor: gradient, 
+                      borderWidth: 4, 
+                      pointBackgroundColor: '#ffffff', 
+                      pointBorderColor: '#f97316', 
+                      pointBorderWidth: 3,
+                      pointRadius: 6,
+                      pointHoverRadius: 9,
+                      fill: true,
+                      tension: 0.4 
+                  }]
+              },
+              plugins: [pluginDataLabels], 
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: {
+                      padding: { top: 30, bottom: 0 } // Remove a margem do canvas para colar à base
+                  },
+                  plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          titleColor: isDark ? '#f8fafc' : '#0f172a',
+                          bodyColor: isDark ? '#94a3b8' : '#64748b',
+                          borderColor: isDark ? '#334155' : '#e2e8f0',
+                          borderWidth: 1,
+                          padding: 12,
+                          displayColors: false,
+                          callbacks: {
+                              label: function(context) {
+                                  return `${context.parsed.y} itens a processar`;
+                              }
+                          }
+                      }
+                  },
+                  scales: {
+                      y: {
+                          beginAtZero: true,
+                          grid: { display: false, drawBorder: false }, 
+                          ticks: { display: false }, 
+                          border: { display: false }
+                      },
+                      x: {
+                          grid: { display: false, drawBorder: false }, 
+                          ticks: { 
+                              color: textColorStrong,
+                              padding: 6,
+                              font: { size: 12, weight: '500', family: "'Inter', sans-serif" } 
+                          },
+                          border: { display: false }
+                      }
+                  }
+              }
+          });
+      }
+  }
+
+  // --- NOVO GRÁFICO 2: BULLET CHART (BARRAS SOBREPOSTAS) ---
+  function renderizarGraficoComparativo(labelsArr, dataTotalArr, dataRealArr) {
+      const ctx = document.getElementById('graficoComparativoCargas');
+      if (!ctx) return;
+
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const textColorStrong = isDark ? '#ffffff' : '#0f172a'; 
+
+      if (chartComparativo) {
+          chartComparativo.data.labels = labelsArr;
+          chartComparativo.data.datasets[0].data = dataTotalArr;
+          chartComparativo.data.datasets[1].data = dataRealArr;
+          
+          chartComparativo.options.scales.x.ticks.color = textColorStrong;
+          chartComparativo.options.plugins.tooltip.backgroundColor = isDark ? '#1e293b' : '#ffffff';
+          chartComparativo.options.plugins.tooltip.titleColor = isDark ? '#f8fafc' : '#0f172a';
+          chartComparativo.options.plugins.tooltip.bodyColor = isDark ? '#94a3b8' : '#64748b';
+          chartComparativo.options.plugins.legend.labels.color = textColorStrong;
+          chartComparativo.update();
+      } else {
+          chartComparativo = new Chart(ctx, {
+              type: 'bar',
+              data: {
+                  labels: labelsArr,
+                  datasets: [
+                      {
+                          label: 'Geral (Prometido)',
+                          data: dataTotalArr,
+                          backgroundColor: 'rgba(249, 115, 22, 0.15)', 
+                          borderColor: '#f97316', 
+                          borderWidth: 2,
+                          borderRadius: 6,
+                          barPercentage: 0.4, 
+                          categoryPercentage: 0.6,
+                          grouped: false 
+                      },
+                      {
+                          label: 'Auditado (Realizado)',
+                          data: dataRealArr,
+                          backgroundColor: '#10b981', 
+                          borderRadius: 4,
+                          barPercentage: 0.2, 
+                          categoryPercentage: 0.6,
+                          grouped: false 
+                      }
+                  ]
+              },
+              plugins: [pluginDataLabels], 
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: {
+                      padding: { top: 30, bottom: 5 } 
+                  },
+                  plugins: {
+                      legend: { 
+                          display: true,
+                          position: 'top',
+                          align: 'center', // NOVO: Alterado de 'end' para 'center' para centralizar os rótulos
+                          labels: {
+                              color: textColorStrong,
+                              usePointStyle: true,
+                              boxWidth: 8,
+                              font: { size: 12, weight: '600', family: "'Inter', sans-serif" }
+                          }
+                      },
+                      tooltip: {
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          titleColor: isDark ? '#f8fafc' : '#0f172a',
+                          bodyColor: isDark ? '#94a3b8' : '#64748b',
+                          borderColor: isDark ? '#334155' : '#e2e8f0',
+                          borderWidth: 1,
+                          padding: 12,
+                          callbacks: {
+                              label: function(context) {
+                                  return ` ${context.dataset.label}: ${context.parsed.y} itens`;
+                              }
+                          }
+                      }
+                  },
+                  scales: {
+                      y: {
+                          beginAtZero: true,
+                          grid: { display: false, drawBorder: false }, 
+                          ticks: { display: false }, 
+                          border: { display: false }
+                      },
+                      x: {
+                          grid: { display: false, drawBorder: false }, 
+                          ticks: { 
+                              color: textColorStrong,
+                              padding: 26, 
+                              font: {
+                                  size: 12, 
+                                  family: "'Inter', sans-serif",
+                                  weight: '500' 
+                              }
+                          },
+                          border: { display: false }
+                      }
+                  }
+              }
+          });
+      }
+  }
+
+  document.addEventListener("DOMContentLoaded", function() {
+      carregarDashboardVolume(true);
+      
+      // ========================================================================
+      // ADIÇÃO: Lógica do Painel Retrátil de Divergências (Fora da Carga)
+      // ========================================================================
+      const headerNaoEncontrados = document.getElementById('headerNaoEncontrados');
+      const corpoNaoEncontrados = document.getElementById('corpoNaoEncontrados');
+      const iconeRetratilErros = document.getElementById('iconeRetratilErros');
+      
+      if (headerNaoEncontrados) {
+          headerNaoEncontrados.addEventListener('click', function() {
+              if (corpoNaoEncontrados.style.display === 'none') {
+                  corpoNaoEncontrados.style.display = 'block';
+                  iconeRetratilErros.style.transform = 'rotate(0deg)'; 
+              } else {
+                  corpoNaoEncontrados.style.display = 'none';
+                  iconeRetratilErros.style.transform = 'rotate(180deg)'; 
+              }
+          });
+      }
+  });
+</script>

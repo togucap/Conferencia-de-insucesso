@@ -1,0 +1,159 @@
+<script>
+  // ============================================================================
+  // SCRIPT: EXPORTAÇÃO EXCEL (COM CRUZAMENTO E VEREDITO FINAL)
+  // Responsabilidade: Gerar e descarregar o ficheiro .xlsx avaliando todas as camadas
+  // ============================================================================
+
+  function exportarRelatorioExcel() {
+      if (!cargaAtual) return;
+      
+      if (typeof XLSX === 'undefined') {
+          alert("Erro: A biblioteca de exportação não foi carregada corretamente. Verifique a sua ligação à internet.");
+          return;
+      }
+
+      const btnOriginalText = btnExportarResumo ? btnExportarResumo.innerHTML : "";
+      if (btnExportarResumo) btnExportarResumo.innerHTML = "⏳ A gerar Excel...";
+      if (btnExportarMicro) btnExportarMicro.innerHTML = "⏳ Aguarde...";
+
+      obterSetRecebidosAba(function(listaChegadaSet) {
+          
+          // Adicionada a coluna "NF" no cabeçalho
+          const cabecalho = ["Categoria Física", "NF", "Pedido Faturado", "Mercadoria Codigo", "Produto Nome", "Status da Conferencia", "Na Lista de Chegada", "Veredito Final"];
+          const linhasConsolidado = [cabecalho];
+          const linhasUnitarios = [cabecalho];
+          const linhasMultiplos = [cabecalho];
+
+          const adicionarLinha = (categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, vereditoTexto, totalPedido) => {
+              const linha = [categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, vereditoTexto];
+              linhasConsolidado.push(linha);
+              
+              if (categoria.includes("Divergência") || categoria.includes("Não Encontrado")) return;
+
+              if (totalPedido === 1) {
+                  linhasUnitarios.push(linha);
+              } else if (totalPedido > 1) {
+                  linhasMultiplos.push(linha);
+              }
+          };
+
+          const metricas = calcularMetricasMicro();
+
+          linhasGlobais.forEach(linhaObj => {
+             const nf = indiceNF !== -1 && linhaObj.dados[indiceNF] ? String(linhaObj.dados[indiceNF]).trim() : "N/A";
+             const ped = linhaObj.dados[indicePedidoFaturado] ? String(linhaObj.dados[indicePedidoFaturado]).trim() : "";
+             const merc = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
+             const prod = linhaObj.dados[indiceColunaProduto] ? String(linhaObj.dados[indiceColunaProduto]).trim() : "";
+             const statusOriginal = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
+             const chaveCheck = getChaveSistemica(linhaObj);
+             
+             const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
+             const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (statusOriginal === "Conferido");
+             const isRecusado = recusasInterceptadas.has(merc) || statusOriginal === "Bloqueado";
+             const isDivergencia = statusOriginal.includes("Divergência") || statusOriginal.includes("Não Encontrado");
+             const isSistemico = listaChegadaSet.has(chaveCheck);
+             
+             const totalPed = mapaPedidosTotal[ped] || 1;
+
+             let statusTexto = "Aguardando Bipagem";
+             let categoria = "Pendente";
+             let sistemicoTexto = isSistemico ? "Sim (Na Lista)" : "Não";
+             let veredito = "";
+
+             if (isDivergencia) {
+                 veredito = "Fora da Carga";
+                 statusTexto = "Não Encontrado na Base";
+                 categoria = "Divergência";
+                 adicionarLinha(categoria, nf, ped || "N/A", merc, prod || "N/A", statusTexto, "N/A", veredito, totalPed);
+                 return; 
+             }
+
+             if (isRecusado) {
+                 statusTexto = "Bloqueado";
+                 categoria = "Recusado";
+                 veredito = "Bloqueio Intencional";
+             } else if (isConferido) {
+                 statusTexto = "Conferido";
+                 if (totalPed === 1) {
+                     categoria = "Finalizado (Unitário)";
+                 } else {
+                     categoria = metricas.pedCompletosPedidos.includes(ped) ? "Finalizado (Múltiplo)" : "Conferido (Múltiplo Parcial)";
+                 }
+                 veredito = isSistemico ? "Recebido com Sucesso (OK)" : "Atraso Sistémico (Aguardando Entrada)";
+             } else {
+                 categoria = (totalPed > 1) ? "Pendente (Múltiplo)" : "Pendente (Unitário)";
+                 veredito = isSistemico ? "Furo de Processo (Na lista sem bipar)" : "FALTA CONFIRMADA";
+             }
+
+             adicionarLinha(categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, veredito, totalPed);
+          });
+
+          Array.from(divergenciasBipadas).forEach(merc => {
+             // O indice da mercadoria mudou de 2 para 3 devido à injeção da NF
+             const jaExiste = linhasConsolidado.some(linha => linha[3] === merc && linha[0].includes("Divergência"));
+             if (!jaExiste) {
+                 linhasConsolidado.push(["Divergência", "N/A", "N/A", merc, "N/A", "Não Encontrado na Base", "N/A", "Fora da Carga"]);
+             }
+          });
+
+          let dadosMultiplos = linhasMultiplos.slice(1);
+          dadosMultiplos.sort((a, b) => {
+              // O indice do Pedido Faturado mudou de 1 para 2 devido à injeção da NF
+              let pedA = a[2].toString().trim();
+              let pedB = b[2].toString().trim();
+              if (pedA < pedB) return -1;
+              if (pedA > pedB) return 1;
+              return 0;
+          });
+
+          let linhasMultiplosFormatado = [cabecalho];
+          let ultimoPedidoMultiplo = "";
+
+          dadosMultiplos.forEach((linha) => {
+              const pedAtual = linha[2].toString().trim();
+              if (ultimoPedidoMultiplo !== "" && pedAtual !== ultimoPedidoMultiplo) {
+                  // Adicionada uma coluna extra vazia para alinhar os espaçamentos
+                  linhasMultiplosFormatado.push(["", "", "", "", "", "", "", ""]);
+              }
+              linhasMultiplosFormatado.push(linha);
+              ultimoPedidoMultiplo = pedAtual;
+          });
+
+          const wb = XLSX.utils.book_new();
+          const wsConsolidado = XLSX.utils.aoa_to_sheet(linhasConsolidado);
+          const wsUnitarios = XLSX.utils.aoa_to_sheet(linhasUnitarios);
+          const wsMultiplosFormatada = XLSX.utils.aoa_to_sheet(linhasMultiplosFormatado);
+
+          const wscols = [
+              {wch: 22}, // Categoria
+              {wch: 15}, // NF (Nova coluna)
+              {wch: 18}, // Pedido Faturado
+              {wch: 18}, // Mercadoria Codigo
+              {wch: 40}, // Produto Nome
+              {wch: 20}, // Status
+              {wch: 18}, // MSPC
+              {wch: 35}  // Veredito
+          ];
+          wsConsolidado['!cols'] = wscols;
+          wsUnitarios['!cols'] = wscols;
+          wsMultiplosFormatada['!cols'] = wscols;
+
+          XLSX.utils.book_append_sheet(wb, wsConsolidado, "Consolidado");
+          XLSX.utils.book_append_sheet(wb, wsUnitarios, "Unitários");
+          XLSX.utils.book_append_sheet(wb, wsMultiplosFormatada, "Múltiplos");
+
+          XLSX.writeFile(wb, `Relatorio_Operacao_${cargaAtual}_${new Date().getTime()}.xlsx`);
+
+          if (btnExportarResumo) btnExportarResumo.innerHTML = btnOriginalText;
+          if (btnExportarMicro) btnExportarMicro.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Exportar`;
+      });
+  }
+
+  if (btnExportarMicro) {
+      btnExportarMicro.addEventListener('click', exportarRelatorioExcel);
+  }
+  
+  if (btnExportarResumo) {
+      btnExportarResumo.addEventListener('click', exportarRelatorioExcel);
+  }
+</script>

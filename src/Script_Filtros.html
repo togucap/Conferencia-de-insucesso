@@ -1,0 +1,210 @@
+<script>
+  // ============================================================================
+  // SCRIPT: MOTOR DE FILTROS GERENCIAIS (VANILLA JS + EVENT DELEGATION)
+  // ============================================================================
+
+  let baseDadosGlobal = []; 
+
+  function inicializarFiltros(dadosCompletos) {
+      baseDadosGlobal = dadosCompletos.chartData; 
+      
+      let anos = new Set();
+      let meses = new Set();
+      let cargas = new Set();
+
+      baseDadosGlobal.forEach(d => {
+          let partes = d.carga.split('-');
+          cargas.add(d.carga);
+          if (partes.length === 3) {
+              meses.add(partes[1]);
+              anos.add(partes[2]);
+          }
+      });
+
+      renderizarOpcoes('listaFiltroCarga', Array.from(cargas).sort());
+      renderizarOpcoes('listaFiltroMes', Array.from(meses).sort());
+      renderizarOpcoes('listaFiltroAno', Array.from(anos).sort());
+
+      document.querySelectorAll('.custom-dropdown').forEach(atualizarTituloFiltro);
+      aplicarFiltrosGlobais();
+  }
+
+  function renderizarOpcoes(idLista, arrayValores) {
+      const ul = document.getElementById(idLista);
+      if (!ul) return;
+      ul.innerHTML = '';
+      arrayValores.forEach(val => {
+          ul.innerHTML += `
+              <li>
+                  <label>
+                      <input type="checkbox" value="${val}"> 
+                      <span>${val}</span>
+                  </label>
+                  <button class="btn-only" title="Selecionar apenas este">Somente</button>
+              </li>
+          `;
+      });
+  }
+
+  // --- REATIVIDADE IMEDIATA E EVENT DELEGATION ---
+  document.addEventListener('click', function(e) {
+      // 1. Abrir/Fechar Dropdowns (Agora com animação de active state)
+      if (e.target.closest('.dropdown-btn')) {
+          const dropdown = e.target.closest('.custom-dropdown');
+          const content = dropdown.querySelector('.dropdown-content');
+          const isAberto = content.style.display === 'block';
+          
+          // Fecha os outros
+          document.querySelectorAll('.dropdown-content').forEach(el => el.style.display = 'none');
+          document.querySelectorAll('.custom-dropdown').forEach(el => el.classList.remove('active'));
+
+          if (!isAberto) {
+              content.style.display = 'block';
+              dropdown.classList.add('active');
+          }
+      } 
+      // Fecha clicando fora
+      else if (!e.target.closest('.custom-dropdown')) {
+          document.querySelectorAll('.dropdown-content').forEach(el => el.style.display = 'none');
+          document.querySelectorAll('.custom-dropdown').forEach(el => el.classList.remove('active'));
+      }
+
+      // 2. Mudança num Checkbox Normal
+      if (e.target.matches('.dropdown-list input[type="checkbox"]')) {
+          const dropdown = e.target.closest('.custom-dropdown');
+          atualizarTituloFiltro(dropdown);
+          aplicarFiltrosGlobais();
+      }
+
+      // 3. Ação de Exclusividade (Botão "Somente")
+      if (e.target.matches('.btn-only')) {
+          const dropdown = e.target.closest('.custom-dropdown');
+          const ul = dropdown.querySelector('.dropdown-list');
+          
+          ul.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+          
+          const myCheckbox = e.target.closest('li').querySelector('input[type="checkbox"]');
+          myCheckbox.checked = true;
+          
+          atualizarTituloFiltro(dropdown);
+          aplicarFiltrosGlobais();
+      }
+
+      // 4. Ações em Massa (Selecionar Todos os VISÍVEIS)
+      if (e.target.matches('.btn-select-all')) {
+          const dropdown = e.target.closest('.custom-dropdown');
+          const ul = dropdown.querySelector('.dropdown-list');
+          
+          ul.querySelectorAll('li').forEach(li => {
+              if (li.style.display !== 'none') {
+                  li.querySelector('input[type="checkbox"]').checked = true;
+              }
+          });
+          
+          atualizarTituloFiltro(dropdown);
+          aplicarFiltrosGlobais();
+      }
+
+      // 5. Ações em Massa (Limpar Aba)
+      if (e.target.matches('.btn-clear')) {
+          const dropdown = e.target.closest('.custom-dropdown');
+          const ul = dropdown.querySelector('.dropdown-list');
+          
+          ul.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+          
+          atualizarTituloFiltro(dropdown);
+          aplicarFiltrosGlobais();
+      }
+
+      // 6. NOVO: Botão Global de Limpar Todos os Filtros
+      if (e.target.closest('#btnLimparFiltrosGlobais')) {
+          document.querySelectorAll('.dropdown-list input[type="checkbox"]').forEach(cb => cb.checked = false);
+          document.querySelectorAll('.custom-dropdown').forEach(atualizarTituloFiltro);
+          aplicarFiltrosGlobais();
+      }
+  });
+
+  // --- BUSCA INTERNA EM TEMPO REAL ---
+  document.addEventListener('input', function(e) {
+      if (e.target.matches('.dropdown-search')) {
+          const termo = e.target.value.toLowerCase();
+          const ul = e.target.closest('.custom-dropdown').querySelector('.dropdown-list');
+          
+          ul.querySelectorAll('li').forEach(li => {
+              const textoLabel = li.querySelector('span').textContent.toLowerCase();
+              li.style.display = textoLabel.includes(termo) ? '' : 'none';
+          });
+      }
+  });
+
+  // --- FEEDBACK DINÂMICO NO TÍTULO ---
+  function atualizarTituloFiltro(dropdownContainer) {
+      const btn = dropdownContainer.querySelector('.dropdown-btn');
+      const label = dropdownContainer.getAttribute('data-label');
+      const checkedBoxes = dropdownContainer.querySelectorAll('input[type="checkbox"]:checked');
+      
+      if (checkedBoxes.length === 0) {
+          btn.innerText = `${label} (Todos)`;
+      } else {
+          btn.innerText = `${label} (${checkedBoxes.length} selec.)`;
+      }
+  }
+
+  // --- LÓGICA DE VISIBILIDADE DO BOTÃO "LIMPAR TODOS" ---
+  function atualizarVisibilidadeBotaoLimparGlobais() {
+      const ativos = document.querySelectorAll('.dropdown-list input[type="checkbox"]:checked').length;
+      const btnLimpar = document.getElementById('btnLimparFiltrosGlobais');
+      if (btnLimpar) {
+          btnLimpar.style.display = ativos > 0 ? 'flex' : 'none';
+      }
+  }
+
+  // --- APLICAR FILTROS AO DASHBOARD (CALCULADORA) ---
+  function obterValoresAtivos(idLista) {
+      const selecionados = document.querySelectorAll(`#${idLista} input[type="checkbox"]:checked`);
+      return Array.from(selecionados).map(cb => cb.value);
+  }
+
+  function aplicarFiltrosGlobais() {
+      const anos = obterValoresAtivos('listaFiltroAno');
+      const meses = obterValoresAtivos('listaFiltroMes');
+      const cargas = obterValoresAtivos('listaFiltroCarga');
+
+      // Cruza as regras
+      const dadosFiltrados = baseDadosGlobal.filter(d => {
+          let partes = d.carga.split('-');
+          let m = partes.length === 3 ? partes[1] : null;
+          let a = partes.length === 3 ? partes[2] : null;
+
+          const matchAno = anos.length === 0 || anos.includes(a);
+          const matchMes = meses.length === 0 || meses.includes(m);
+          const matchCarga = cargas.length === 0 || cargas.includes(d.carga);
+
+          return matchAno && matchMes && matchCarga;
+      });
+
+      // Recalcula KPIs baseados apenas nas linhas que passaram no filtro
+      let sum = {
+          totalPedidos: 0, realPedidos: 0,
+          totalVolumes: 0, realVolumes: 0,
+          totalRecusados: 0, realRecusados: 0,
+          chartData: dadosFiltrados
+      };
+
+      dadosFiltrados.forEach(d => {
+          sum.totalPedidos += (d.pedidos || 0);
+          sum.realPedidos += (d.realPedidos || 0);
+          sum.totalVolumes += (d.volume || 0);
+          sum.realVolumes += (d.realVolumes || 0);
+          sum.totalRecusados += (d.recusados || 0);
+          sum.realRecusados += (d.realRecusados || 0);
+      });
+
+      // Controla o botão "Limpar Todos"
+      atualizarVisibilidadeBotaoLimparGlobais();
+
+      if (typeof preencherDashboardVisual === 'function') {
+          preencherDashboardVisual(sum);
+      }
+  }
+</script>
