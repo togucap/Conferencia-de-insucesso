@@ -3,192 +3,226 @@
   <head>
     <base target="_top">
     <meta charset="UTF-8">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <?!= include('Estilos'); ?>
   </head>
   <body>
-    
+
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h1 class="brand-logo">Controle de Insucessos</h1>
+        <span class="brand-mark" aria-hidden="true">CI</span>
+        <div class="brand-text">
+          <h1 class="brand-logo">Controle de Insucessos</h1>
+          <span class="brand-sub">Auditoria de cargas</span>
+        </div>
       </div>
-      <nav class="sidebar-nav">
-        <div class="nav-item active" data-target="view-auditoria">
-          Auditoria de Cargas
-        </div>
-        <div class="nav-item" data-target="view-gerencial">
-          Painel Gerencial
-        </div>
+
+      <nav class="sidebar-nav" aria-label="Principal">
+        <button type="button" class="nav-item active" data-target="view-auditoria">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z"></path><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path><path d="m9 14 2 2 4-4"></path></svg>
+          <span class="nav-text">Auditoria de Cargas</span>
+        </button>
+        <button type="button" class="nav-item" data-target="view-gerencial">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+          <span class="nav-text">Painel Gerencial</span>
+        </button>
       </nav>
-      
+
+      <div class="sidebar-section">
+        <span class="sidebar-section-title">Ferramentas</span>
+        <button type="button" id="btnAbrirModalUpload" class="sidebar-tool" title="Importar nova planilha de carga">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg>
+          <span class="nav-text">Nova Carga</span>
+        </button>
+        <button type="button" id="btnAbrirModalUploadChegada" class="sidebar-tool" title="Importar Lista de Chegada manualmente (D-0)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6h9M11 12h9M11 18h9"></path><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"></path></svg>
+          <span class="nav-text">Lista de Chegada (D-0)</span>
+        </button>
+        <button type="button" id="btnAbrirModalBloqueio" class="sidebar-tool" title="Sinalizar Notas/Pedidos como Não Receber">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m5.6 5.6 12.8 12.8"></path></svg>
+          <span class="nav-text">Bloquear Lotes</span>
+        </button>
+      </div>
+
       <div class="sidebar-footer">
         <a href="https://docs.google.com/spreadsheets/d/1ZTT00zVeI6yhMLFm7TIuyWlT3dhybk8THqhdHbjiuiA/edit?gid=1349642298#gid=1349642298" target="_blank" class="btn-planilha">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          Planilha Base
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9"></path><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"></path></svg>
+          <span class="nav-text">Planilha Base</span>
         </a>
         <div class="developer-info">
-          <span>Desenvolvido por:</span>
+          <span>Desenvolvido por</span>
           <strong>Luan.costa@kabum.com.br</strong>
         </div>
       </div>
     </aside>
 
     <main class="main-content">
-      
+
       <header class="page-header">
         <div class="header-titles">
           <h2 id="globalPageTitle">Painel de Conferência</h2>
           <p id="globalPageSubtitle">Auditoria Fiscal e Controle de Volumes do CD</p>
         </div>
-        
+
         <div class="header-actions">
-          <div class="theme-switch-wrapper">
-            <span id="themeLabel" class="text-support">Dark Mode</span>
-            <label class="switch" title="Alternar Tema">
-              <input type="checkbox" id="checkboxTheme" checked>
-              <span class="slider round"></span>
-            </label>
-          </div>
+          <label class="theme-toggle" title="Alternar tema claro/escuro">
+            <input type="checkbox" id="checkboxTheme" checked>
+            <svg class="icon icon-lua" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>
+            <svg class="icon icon-sol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+            <span id="themeLabel" class="sr-only">Dark Mode</span>
+          </label>
         </div>
       </header>
 
       <!-- SECÇÃO: AUDITORIA DE CARGAS -->
       <div id="view-auditoria" class="view-section">
 
-        <!-- Controles de Seleção e Ações Rápidas -->
-        <div class="controls-bar" id="controlsCard" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap;">
-          <div style="display: flex; gap: 16px; align-items: flex-end; flex-grow: 1;">
-            
-            <!-- NOVO DROPDOWN CUSTOMIZADO DE CARGAS -->
-            <div class="input-group" style="max-width: 320px;">
-              <label>Lote de Auditoria (Carga):</label>
-              <div class="custom-carga-dropdown" id="dropdownSelecaoCarga">
-                  <!-- Input escondido para manter a compatibilidade da lógica antiga -->
-                  <input type="hidden" id="selectAbas" value="" data-finalizada="false">
-                  
-                  <button class="carga-dropdown-btn" id="btnSelectAbas">
-                      <span id="labelCargaSelecionada">-- Selecionar Carga --</span>
-                  </button>
-                  
-                  <div class="carga-dropdown-content" id="conteudoDropdownCarga">
-                      <div style="padding: 15px; color: var(--text-support); text-align: center; font-size: 13px;">
-                          A ligar à base de dados...
-                      </div>
-                  </div>
+        <!-- Seleção da carga -->
+        <div class="controls-bar" id="controlsCard">
+          <div class="input-group input-carga">
+            <label>Lote de auditoria (carga)</label>
+            <div class="custom-carga-dropdown" id="dropdownSelecaoCarga">
+                <!-- Input escondido para manter a compatibilidade da lógica antiga -->
+                <input type="hidden" id="selectAbas" value="" data-finalizada="false">
+
+                <button type="button" class="carga-dropdown-btn" id="btnSelectAbas">
+                    <span id="labelCargaSelecionada">-- Selecionar Carga --</span>
+                </button>
+
+                <div class="carga-dropdown-content" id="conteudoDropdownCarga">
+                    <div class="dropdown-vazio">A ligar à base de dados...</div>
+                </div>
+            </div>
+          </div>
+
+          <button type="button" id="btnCarregar" class="btn-brand" disabled>Iniciar Auditoria</button>
+          <div id="statusMensagem" class="status-msg"></div>
+        </div>
+
+        <!-- Painel da carga: progresso + indicadores + ações -->
+        <section class="painel-carga" id="containerProgresso" style="display: none;" aria-label="Indicadores da carga">
+          <div class="kpi-strip" id="kpiContainer" style="display: none;">
+
+            <div class="kpi-cell kpi-cell-progresso">
+              <div class="kpi-linha">
+                <span class="kpi-title">Volumes conferidos</span>
+                <span class="kpi-sub"><span id="kpiPendentes">0</span> pendentes · total <span id="kpiQtdItens">0</span></span>
+              </div>
+              <div class="kpi-value" id="textoProgresso">0 / 0 (0%)</div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="barraProgresso"></div>
               </div>
             </div>
 
-            <button id="btnCarregar" class="btn-brand" disabled>Iniciar Auditoria</button>
-          </div>
-          
-          <!-- BOTÕES DE AÇÕES EXTRAS DA CARGA -->
-          <div style="display: flex; gap: 12px; align-items: center; margin-top: 10px;">
-            <!-- Sinalizar Recusas -->
-            <button id="btnAbrirModalBloqueio" class="btn-brand" style="background-color: var(--red-alert); display: flex; align-items: center; gap: 8px;" title="Sinalizar Notas/Pedidos como Não Receber">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-              Bloquear Lotes
-            </button>
+            <div class="kpi-cell">
+              <span class="kpi-title">Pedidos completos</span>
+              <div class="kpi-value" id="kpiQtdPedidos">0</div>
+              <div class="kpi-sub" id="kpiQtdMultiplosContainer" style="display: none;">
+                <span id="kpiQtdMultiplos">0</span> múltiplos na carga
+              </div>
+            </div>
 
-            <!-- Upload Lista Chegada (Manual) -->
-            <button id="btnAbrirModalUploadChegada" class="btn-brand" style="background-color: var(--brand-accent); display: flex; align-items: center; gap: 8px;" title="Importar Lista de Chegada Manualmente (D-0)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              Lista Chegada
-            </button>
+            <div class="kpi-cell">
+              <span class="kpi-title">A recusar</span>
+              <div class="kpi-value kpi-perigo" id="kpiQtdErros">0</div>
+              <div class="kpi-sub">marcados Não Receber</div>
+            </div>
 
-            <!-- Upload Nova Carga -->
-            <button id="btnAbrirModalUpload" class="btn-brand" style="background-color: var(--emerald); display: flex; align-items: center; gap: 8px;" title="Importar nova planilha de carga">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              Nova Carga
-            </button>
-          </div>
-        </div>
+            <div class="kpi-cell">
+              <span class="kpi-title">Divergências</span>
+              <div class="kpi-value kpi-violeta" id="kpiQtdDivergencias">0</div>
+              <button type="button" class="kpi-link" id="btnVerDivergencias">Ver etiquetas fora da carga</button>
+            </div>
 
-        <div id="statusMensagem" class="status-msg"></div>
-
-        <!-- Grid de KPIs -->
-        <div class="kpi-grid" id="kpiContainer" style="display: none;">
-          <div class="kpi-card">
-            <div class="kpi-title">PEDIDOS FATURADOS</div>
-            <div class="kpi-value" id="kpiQtdPedidos">0</div>
-            <div class="kpi-sub kpi-emerald" id="kpiQtdMultiplosContainer" style="display: none;">
-              +<span id="kpiQtdMultiplos">0</span> múltiplos identificados
+            <div class="kpi-cell kpi-cell-acoes">
+              <button type="button" id="btnRelatorioMicro" class="btn-secundario" title="Ver detalhes da bipagem">Detalhes</button>
+              <button type="button" id="btnFinalizarAuditoria" class="btn-brand" style="display: none;" title="Finalizar e ver resumo da carga">Finalizar carga</button>
             </div>
           </div>
-          
-          <div class="kpi-card">
-            <div class="kpi-title">TOTAL DE VOLUMES / ITENS</div>
-            <div class="kpi-value" id="kpiQtdItens">0</div>
-            <div class="kpi-sub kpi-alert">
-              Pendente de conferência
-            </div>
-          </div>
-          
-          <div class="kpi-card">
-            <div class="kpi-title">ITENS A RECUSAR (NÃO RECEBER)</div>
-            <div class="kpi-value" id="kpiQtdErros">0</div>
-            <div class="kpi-sub kpi-action">
-              Ação Imediata
-            </div>
-          </div>
-        </div>
+        </section>
 
-        <!-- BARRA DE PROGRESSO E BOTÕES VITAIS -->
-        <div class="progress-container" id="containerProgresso" style="display: none;">
-          <div class="progress-header">
-            <span class="progress-text">Progresso da Auditoria: <span id="textoProgresso">0 / 0 (0%)</span></span>
-            <div style="display: flex; gap: 8px;">
-              <button id="btnRelatorioMicro" class="btn-brand" style="height: 35px; padding: 0 16px; font-size: 13px;" title="Ver Detalhes">Detalhes</button>
-              <button id="btnFinalizarAuditoria" class="btn-brand" style="background-color: var(--emerald); height: 35px; padding: 0 16px; font-size: 13px; display: none;" title="Finalizar e ver resumo da carga">Finalizar</button>
+        <!-- Barra de ferramentas: modo de trabalho + filtros -->
+        <div class="barra-ferramentas">
+          <div class="view-switch-container" id="containerSwitchVisao" style="display: none;">
+            <label class="segmented" title="Alternar entre Tabela e Bipar">
+              <input type="checkbox" id="switchVisao" class="segmented-input">
+              <span class="seg-opt seg-tabela">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18M9 4v16"></path></svg>
+                Tabela
+              </span>
+              <span class="seg-opt seg-bipar">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 8v8M10 8v8M13 8v8M17 8v8"></path></svg>
+                Bipar
+              </span>
+              <span id="textoVisao" class="sr-only">Modo Tabela</span>
+            </label>
+          </div>
+
+          <div class="table-controls" id="tableControls" style="display: none;">
+            <select id="filtroTabela" class="sr-only" aria-hidden="true" tabindex="-1">
+              <option value="todos">Todos os Registos</option>
+              <option value="conferidos">Apenas Conferidos</option>
+              <option value="pendentes">Apenas Pendentes</option>
+              <option value="recusar">Apenas a Recusar (Não Receber)</option>
+              <option value="mspc">Apenas Pedidos MSPC</option>
+            </select>
+            <div class="chips-filtro" id="chipsFiltro" role="group" aria-label="Filtro de exibição">
+              <button type="button" class="chip-filtro ativo" data-filtro="todos">Todos <span class="chip-count" data-count="todos">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="pendentes">Pendentes <span class="chip-count" data-count="pendentes">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="conferidos">Conferidos <span class="chip-count cor-ok" data-count="conferidos">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="recusar">Não receber <span class="chip-count cor-perigo" data-count="recusar">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="mspc">MSPC <span class="chip-count cor-info" data-count="mspc">0</span></button>
             </div>
+            <label class="campo-busca">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <input type="text" id="buscaTabela" placeholder="Procurar etiqueta, pedido ou NF" aria-label="Procurar na tabela" autocomplete="off">
+            </label>
           </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="barraProgresso"></div>
-          </div>
-        </div>
-
-        <!-- FILTRO DA TABELA -->
-        <div class="table-controls" id="tableControls" style="display: none;">
-          <label for="filtroTabela">Filtro de Exibição:</label>
-          <select id="filtroTabela" class="filtro-select">
-            <option value="todos">Todos os Registos</option>
-            <option value="conferidos">Apenas Conferidos</option>
-            <option value="pendentes">Apenas Pendentes</option>
-            <option value="recusar">Apenas a Recusar (Não Receber)</option>
-            <option value="mspc">Apenas Pedidos MSPC</option>
-          </select>
-        </div>
-
-        <!-- Switch de controle de visão -->
-        <div class="view-switch-container" id="containerSwitchVisao" style="display: none;">
-          <span id="textoVisao">Modo de Tabela</span>
-          <label class="switch">
-            <input type="checkbox" id="switchVisao">
-            <span class="slider round"></span>
-          </label>
-          <span class="text-support">Modo Bipar</span>
         </div>
 
         <!-- Tela de Bipar -->
-        <div id="visaoBipar" class="card-container" style="display: none;">
-          <h3 class="card-title">Auditoria por Bipe</h3>
-          <div class="input-group" style="margin-top: 15px;">
-            <input type="text" id="inputEtiqueta" placeholder="Insira ou bipe o código da etiqueta (8 dígitos)..." autocomplete="off" class="input-large">
+        <div id="visaoBipar" style="display: none;">
+          <div class="bipar-grid">
+            <div class="bipar-coluna">
+              <div class="card-container bipar-entrada">
+                <label for="inputEtiqueta">Etiqueta (8 dígitos)</label>
+                <div class="campo-bipe">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 8v8M10 8v8M13 8v8M17 8v8"></path></svg>
+                  <input type="text" id="inputEtiqueta" placeholder="Bipe ou digite a etiqueta" autocomplete="off" class="input-large">
+                  <kbd>Enter</kbd>
+                </div>
+              </div>
+              <div id="resultadoBipe" class="status-bipe" aria-live="polite">
+              </div>
+            </div>
+
+            <aside class="card-container leituras-card" aria-label="Últimas leituras">
+              <div class="leituras-header">
+                <h3 class="card-title">Últimas leituras</h3>
+                <span class="text-support">esta sessão</span>
+              </div>
+              <ul id="listaLeituras" class="lista-leituras">
+                <li class="leituras-vazio">Nenhuma leitura ainda.</li>
+              </ul>
+            </aside>
           </div>
-          <div id="resultadoBipe" class="status-bipe"></div>
         </div>
 
         <!-- Erros de Insucesso -->
         <div id="containerNaoEncontrados" class="card-container erro-container" style="display: none;">
-          <div id="headerNaoEncontrados" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" title="Clique para expandir/recolher a lista">
-            <h3 class="card-title" style="margin: 0; display: flex; align-items: center;">
-              Registos de Divergência (Fora da Carga)
-              <span id="badgeErros" style="background-color: var(--red-alert); color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 10px; display: none;">0</span>
-            </h3>
-            <svg id="iconeRetratilErros" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transition: transform 0.3s; color: var(--text-support);"><polyline points="18 15 12 9 6 15"></polyline></svg>
-          </div>
-          <div id="corpoNaoEncontrados" style="display: block; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 10px;">
-            <ul id="listaNaoEncontrados" style="max-height: 220px; overflow-y: auto; margin: 0; padding-right: 5px;"></ul>
+          <button type="button" id="headerNaoEncontrados" class="erro-header" title="Clique para expandir/recolher a lista">
+            <span class="card-title">
+              Divergências (fora da carga)
+              <span id="badgeErros" class="badge-contador" style="display: none;">0</span>
+            </span>
+            <svg id="iconeRetratilErros" class="icon" viewBox="0 0 24 24" aria-hidden="true" style="transform: rotate(180deg);"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          </button>
+          <div id="corpoNaoEncontrados" class="erro-corpo" style="display: none;">
+            <ul id="listaNaoEncontrados"></ul>
           </div>
         </div>
 
@@ -200,266 +234,6 @@
           </table>
         </div>
 
-        <!-- Modal Relatório Micro -->
-        <div id="modalMicro" class="modal-overlay" style="display: none;">
-          <div class="modal-content card-container">
-            <div class="modal-header">
-              <div style="display: flex; align-items: center; gap: 16px;">
-                  <h3 class="card-title" style="margin:0;">Relatório de bipagem</h3>
-                  <button id="btnExportarMicro" class="btn-brand" style="height: 32px; padding: 0 14px; font-size: 13px; background-color: var(--emerald); display: flex; align-items: center; gap: 6px;" title="Exportar relatório para Excel (.xlsx) com múltiplas abas">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                      Exportar
-                  </button>
-              </div>
-              <button id="btnFecharModal" class="btn-close">&times;</button>
-            </div>
-            <div class="modal-body">
-              <div class="micro-grid">
-                <div class="micro-card clickable" id="cardPedidosCompletos" title="Clique para ver os detalhes">
-                  <span class="micro-card-label">Pedidos bipados</span>
-                  <span class="micro-card-value" id="microPedidosCompletos">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardMultiplosCompletos" title="Clique para ver os detalhes">
-                  <span class="micro-card-label">Pedidos Múltiplos 100% Finalizados</span>
-                  <span class="micro-card-value" id="microMultiplosCompletos">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardMultiplosParciais" title="Clique para ver os detalhes">
-                  <span class="micro-card-label">Pedidos bipados parcialmente</span>
-                  <span class="micro-card-value" id="microMultiplosParciais" style="color: var(--brand-accent)">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardRecusasBipadas" title="Clique para ver os detalhes">
-                  <span class="micro-card-label">Pedidos a serem recusados</span>
-                  <span class="micro-card-value" id="microRecusasBipadas" style="color: var(--red-alert)">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardNaoEncontrados" title="Clique para ver os detalhes" style="grid-column: span 2;">
-                  <span class="micro-card-label">Etiquetas não encontradas (Divergências)</span>
-                  <span class="micro-card-value" id="microNaoEncontrados" style="color: var(--brand-accent)">0</span>
-                </div>
-              </div>
-
-              <!-- Contentor de detalhes -->
-              <div id="detalhesMicroContainer" style="display: none; margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                <h4 id="detalhesMicroTitulo" style="margin-top: 0; margin-bottom: 16px; color: var(--text-main); font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">Detalhes</h4>
-                <div class="table-container" style="max-height: 250px; overflow-y: auto; margin-bottom: 0; border: 1px solid var(--border-color);">
-                  <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                    <thead id="tabelaDetalhesMicroCabecalho"></thead>
-                    <tbody id="tabelaDetalhesMicro">
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal Resumo Final da Carga -->
-        <div id="modalResumoFinal" class="modal-overlay" style="display: none; z-index: 2000; padding: 20px;">
-          <div style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: flex-start; width: 100%; max-width: 1000px;">
-            
-            <div class="modal-content card-container" style="flex: 1 1 600px; margin: 0; padding: 20px 24px; text-align: center; border-top: 6px solid var(--emerald); max-height: 85vh; overflow-y: auto;">
-              <h2 style="margin-top: 0; margin-bottom: 8px; color: var(--emerald); font-size: 22px;">Conferência Finalizada</h2>
-              <p style="color: var(--text-support); margin-bottom: 16px; font-size: 13px;">Esta carga foi marcada como concluída. Abaixo está o resumo da operação.</p>
-              
-              <div class="micro-grid" style="text-align: left; gap: 10px;">
-                <div class="micro-card clickable" id="cardResumoTaxa" title="Clique para ver os itens já auditados" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Taxa de Conclusão</span>
-                  <span class="micro-card-value" id="resumoTaxaConclusao" style="color: var(--emerald); font-size: 20px;">0%</span>
-                </div>
-                <div class="micro-card clickable" id="cardResumoAuditados" title="Clique para ver os itens já auditados" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Itens Auditados (Total)</span>
-                  <span class="micro-card-value" id="resumoItensAuditados" style="font-size: 20px;">0 / 0</span>
-                </div>
-                
-                <div class="micro-card clickable" id="cardResumoPendentes" title="Clique para ver todos os itens não auditados" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Itens Pendentes (Não bipados)</span>
-                  <span class="micro-card-value" id="resumoPendentesGeral" style="color: var(--brand-accent); font-size: 20px;">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardResumoParciais" title="Clique para ver os itens pendentes em pedidos abertos" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Pedidos Parciais Incompletos</span>
-                  <span class="micro-card-value" id="resumoParciais" style="color: var(--brand-accent); font-size: 16px;">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardResumoRecusados" title="Clique para ver os itens barrados" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Itens Recusados (Bloqueados)</span>
-                  <span class="micro-card-value" id="resumoRecusados" style="color: var(--red-alert); font-size: 20px;">0</span>
-                </div>
-                <div class="micro-card clickable" id="cardResumoNaoEncontrados" title="Clique para ver itens bipados fora da carga" style="padding: 10px 14px;">
-                  <span class="micro-card-label" style="font-size: 11px; margin-bottom: 4px;">Divergências (Fora da Lista)</span>
-                  <span class="micro-card-value" id="resumoNaoEncontrados" style="color: var(--text-support); font-size: 20px;">0</span>
-                </div>
-              </div>
-
-              <!-- Contentor para a tabela de detalhes do Resumo -->
-              <div id="detalhesResumoContainer" style="display: none; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px; text-align: left;">
-                <h4 id="detalhesResumoTitulo" style="margin-top: 0; margin-bottom: 12px; color: var(--text-main); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Detalhes</h4>
-                <div class="table-container" style="max-height: 160px; overflow-y: auto; margin-bottom: 0; border: 1px solid var(--border-color);">
-                  <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                    <thead id="tabelaDetalhesResumoCabecalho"></thead>
-                    <tbody id="tabelaDetalhesResumo">
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <!-- PAINEL DE AÇÕES LATERAIS -->
-            <div style="flex: 0 1 260px; display: flex; flex-direction: column; gap: 16px; width: 100%; position: sticky; top: 0;">
-                <button id="btnExportarResumo" class="btn-brand" style="width: 100%; height: 45px; font-size: 14px; background-color: var(--emerald); display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Exportar Relatório
-                </button>
-                <button id="btnContinuarAuditoria" class="btn-brand" style="width: 100%; height: 45px; font-size: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                    Reabrir Conferência
-                </button>
-                <button id="btnVoltarSelecao" style="width: 100%; height: 45px; font-size: 14px; font-weight: 600; background-color: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: background-color 0.2s;">
-                    Voltar para Seleção
-                </button>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Modal de Confirmação de Finalização -->
-        <div id="modalConfirmacao" class="modal-overlay" style="display: none; z-index: 2500;">
-          <div class="modal-content card-container" style="max-width: 450px; text-align: center; border-top: 6px solid var(--brand-accent);">
-            <h2 style="margin-top: 0; color: var(--text-main); font-size: 24px;">Confirmar Finalização</h2>
-            <p style="color: var(--text-support); margin-bottom: 30px; font-size: 15px;">Deseja marcar esta conferência como <strong>FINALIZADA</strong>?<br><br>Isto exibirá o painel de resumo e travará temporariamente a operação de bipagem.</p>
-            <div style="display: flex; gap: 16px; justify-content: center;">
-              <button id="btnCancelarFinalizacao" style="flex: 1; height: 45px; font-size: 15px; font-weight: 600; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; cursor: pointer; transition: background-color 0.2s;">Cancelar</button>
-              <button id="btnConfirmarFinalizacao" class="btn-brand" style="flex: 1; height: 45px; font-size: 15px; background-color: var(--emerald);">Sim, Finalizar</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal de Alerta Genérico (Etiqueta Inválida / Erro Estrutural) -->
-        <div id="modalAlertaEtiqueta" class="modal-overlay" style="display: none; z-index: 3000;">
-          <div class="modal-content card-container" style="max-width: 400px; text-align: center; border-top: 6px solid var(--red-alert);">
-            <div style="color: var(--red-alert); margin-bottom: 15px;">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            </div>
-            <h2 style="margin-top: 0; color: var(--text-main); font-size: 22px;">Atenção!</h2>
-            <p id="textoAlertaEtiqueta" style="color: var(--text-support); margin-bottom: 24px; font-size: 15px;">Mensagem de erro aqui.</p>
-            <button id="btnFecharAlertaEtiqueta" class="btn-brand" style="width: 100%; height: 45px; font-size: 15px; background-color: var(--red-alert);">Entendido</button>
-          </div>
-        </div>
-
-        <!-- Modal: Bloqueio em Massa (Sinalizar Recusas) -->
-        <div id="modalBloqueioEmMassa" class="modal-overlay" style="display: none; z-index: 3000;">
-          <div class="modal-content card-container" style="max-width: 480px; border-top: 6px solid var(--red-alert);">
-            <div class="modal-header">
-              <h2 style="margin: 0; color: var(--text-main); font-size: 20px;">Sinalizar Recusas (Bloqueio)</h2>
-              <button id="btnFecharModalBloqueio" class="btn-close">&times;</button>
-            </div>
-            <div class="modal-body" style="padding-top: 20px;">
-              <p style="color: var(--text-support); font-size: 14px; margin-top: 0; margin-bottom: 20px;">
-                Carga Selecionada: <strong id="labelCargaBloqueio" style="color: var(--text-main);">Nenhuma</strong><br>
-                Cole a lista de itens que deseja marcar como <strong>"Não Receber"</strong> na base de dados.
-              </p>
-              
-              <div class="input-group" style="margin-bottom: 20px;">
-                <label for="tipoBuscaBloqueio">Coluna de Busca:</label>
-                <select id="tipoBuscaBloqueio" style="width: 100%;">
-                  <option value="PEDIDO">Número do Pedido Faturado</option>
-                  <option value="NF">Nota Fiscal (NF)</option>
-                </select>
-              </div>
-
-              <div class="input-group" style="margin-bottom: 24px;">
-                <label for="listaBloqueio">Valores (Um por linha ou separados por vírgula):</label>
-                <textarea id="listaBloqueio" rows="6" placeholder="Exemplo:&#10;123456&#10;789012" style="width: 100%; box-sizing: border-box; padding: 12px; background-color: var(--bg-global); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; resize: vertical; font-family: monospace;"></textarea>
-              </div>
-
-              <div id="msgBloqueioProgresso" style="color: var(--brand-accent); font-size: 14px; margin-bottom: 16px; display: none; font-weight: 600; text-align: center;">A processar bloqueios...</div>
-
-              <div style="display: flex; gap: 16px; justify-content: flex-end;">
-                <button id="btnCancelarBloqueio" style="padding: 10px 20px; font-weight: 600; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; cursor: pointer;">Cancelar</button>
-                <button id="btnConfirmarBloqueio" class="btn-brand" style="background-color: var(--red-alert); padding: 10px 24px;">Aplicar Bloqueio</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- MODAL: Upload de Carga -->
-        <div id="modalUpload" class="modal-overlay" style="display: none; z-index: 3000;">
-          <div class="modal-content card-container" style="max-width: 480px; border-top: 6px solid var(--emerald);">
-            <div class="modal-header">
-              <h2 style="margin: 0; color: var(--text-main); font-size: 20px;">Upload de Nova Carga</h2>
-              <button id="btnFecharModalUpload" class="btn-close">&times;</button>
-            </div>
-            <div class="modal-body" style="padding-top: 20px;">
-              <div class="input-group" style="margin-bottom: 20px;">
-                <label for="dataNovaCarga">Data da Carga (Dará o nome à aba):</label>
-                <input type="date" id="dataNovaCarga" style="width: 100%; box-sizing: border-box; padding: 12px; background-color: var(--bg-global); border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px;">
-              </div>
-              <div class="input-group" style="margin-bottom: 24px;">
-                <label for="arquivoNovaCarga">Ficheiro (Excel ou CSV):</label>
-                <div id="dropZoneUpload" class="drop-zone" style="border: 2px dashed var(--border-color); border-radius: 12px; padding: 40px 20px; text-align: center; background-color: var(--bg-global); cursor: pointer; margin-top: 8px;">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px; color: var(--emerald);">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                  </svg>
-                  <p id="dropZoneText" style="margin: 0; font-size: 14px; color: var(--text-support);">
-                    Arraste e solte o ficheiro Excel aqui<br>ou <strong style="color: var(--emerald); cursor: pointer;">clique para procurar</strong>
-                  </p>
-                  <input type="file" id="arquivoNovaCarga" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
-                </div>
-              </div>
-              <div id="msgUploadProgresso" style="color: var(--brand-accent); font-size: 14px; margin-bottom: 16px; display: none; font-weight: 600; text-align: center;">A processar ficheiro...</div>
-              <div style="display: flex; gap: 16px; justify-content: flex-end;">
-                <button id="btnCancelarUpload" style="padding: 10px 20px; font-weight: 600; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; cursor: pointer;">Cancelar</button>
-                <button id="btnConfirmarUpload" class="btn-brand" style="background-color: var(--emerald); padding: 10px 24px;">Enviar Carga</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- NOVO MODAL: Upload Lista Chegada -->
-        <div id="modalUploadChegada" class="modal-overlay" style="display: none; z-index: 3000;">
-          <div class="modal-content card-container" style="max-width: 480px; border-top: 6px solid var(--brand-accent);">
-            <div class="modal-header">
-              <h2 style="margin: 0; color: var(--text-main); font-size: 20px;">Upload Manual (Lista Chegada)</h2>
-              <button id="btnFecharModalUploadChegada" class="btn-close">&times;</button>
-            </div>
-            <div class="modal-body" style="padding-top: 20px;">
-              <p style="color: var(--text-support); font-size: 14px; margin-top: 0; margin-bottom: 20px;">
-                Esta ação fará o processamento local do ficheiro "Lista_chegada" e anexará os itens mais recentes à base "Base_Lista_Chegada".
-              </p>
-              <div class="input-group" style="margin-bottom: 24px;">
-                <label for="arquivoListaChegada">Ficheiro (Excel ou CSV):</label>
-                <div id="dropZoneUploadChegada" class="drop-zone" style="border: 2px dashed var(--border-color); border-radius: 12px; padding: 40px 20px; text-align: center; background-color: var(--bg-global); cursor: pointer; margin-top: 8px;">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px; color: var(--brand-accent);">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                  </svg>
-                  <p id="dropZoneTextChegada" style="margin: 0; font-size: 14px; color: var(--text-support);">
-                    Arraste e solte o ficheiro <strong>Lista_chegada</strong> aqui<br>ou <strong style="color: var(--brand-accent); cursor: pointer;">clique para procurar</strong>
-                  </p>
-                  <input type="file" id="arquivoListaChegada" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
-                </div>
-              </div>
-              <div id="msgUploadProgressoChegada" style="color: var(--brand-accent); font-size: 14px; margin-bottom: 16px; display: none; font-weight: 600; text-align: center;">A ler ficheiro...</div>
-              <div style="display: flex; gap: 16px; justify-content: flex-end;">
-                <button id="btnCancelarUploadChegada" style="padding: 10px 20px; font-weight: 600; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-main); border-radius: 8px; cursor: pointer;">Cancelar</button>
-                <button id="btnConfirmarUploadChegada" class="btn-brand" style="background-color: var(--brand-accent); padding: 10px 24px;">Processar D-0</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- MODAL: Alerta Específico do Upload -->
-        <div id="modalAlertaUpload" class="modal-overlay" style="display: none; z-index: 3500;">
-          <div class="modal-content card-container" style="max-width: 400px; text-align: center; border-top: 6px solid var(--brand-accent);">
-            <div style="color: var(--brand-accent); margin-bottom: 15px;">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            </div>
-            <h2 style="margin-top: 0; color: var(--text-main); font-size: 22px;">Aviso</h2>
-            <p id="textoAlertaUpload" style="color: var(--text-support); margin-bottom: 24px; font-size: 15px;">Mensagem de erro de upload aqui.</p>
-            <button id="btnFecharAlertaUpload" class="btn-brand" style="width: 100%; height: 45px; font-size: 15px; background-color: var(--brand-accent);">Entendido</button>
-          </div>
-        </div>
-
       </div> <!-- FIM SECÇÃO: AUDITORIA DE CARGAS -->
 
       <!-- SECÇÃO: PAINEL GERENCIAL -->
@@ -469,10 +243,273 @@
 
     </main>
 
-    <!-- NOVO: Modal Global de Carregamento (Spinner) -->
-    <div id="globalLoader" class="modal-overlay" style="display: none; z-index: 9999; flex-direction: column; background-color: rgba(0, 0, 0, 0.85);">
+    <!-- ===================================================================== -->
+    <!-- MODAIS (fora das secções para abrirem a partir de qualquer ecrã)      -->
+    <!-- ===================================================================== -->
+
+    <!-- Modal Relatório Micro -->
+    <div id="modalMicro" class="modal-overlay" style="display: none;">
+      <div class="modal-content card-container">
+        <div class="modal-header">
+          <div class="modal-header-titulo">
+              <h3 class="card-title">Relatório de bipagem</h3>
+              <button type="button" id="btnExportarMicro" class="btn-secundario btn-pequeno" title="Exportar relatório para Excel (.xlsx) com múltiplas abas">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar
+              </button>
+          </div>
+          <button type="button" id="btnFecharModal" class="btn-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="micro-grid">
+            <div class="micro-card clickable" id="cardPedidosCompletos" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Pedidos bipados</span>
+              <span class="micro-card-value" id="microPedidosCompletos">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardMultiplosCompletos" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Pedidos múltiplos 100% finalizados</span>
+              <span class="micro-card-value" id="microMultiplosCompletos">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardMultiplosParciais" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Pedidos bipados parcialmente</span>
+              <span class="micro-card-value cor-brand" id="microMultiplosParciais">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardRecusasBipadas" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Pedidos a serem recusados</span>
+              <span class="micro-card-value cor-perigo" id="microRecusasBipadas">0</span>
+            </div>
+            <div class="micro-card clickable micro-card-largo" id="cardNaoEncontrados" title="Clique para ver os detalhes">
+              <span class="micro-card-label">Etiquetas não encontradas (divergências)</span>
+              <span class="micro-card-value cor-violeta" id="microNaoEncontrados">0</span>
+            </div>
+          </div>
+
+          <!-- Contentor de detalhes -->
+          <div id="detalhesMicroContainer" class="detalhes-container" style="display: none;">
+            <h4 id="detalhesMicroTitulo" class="detalhes-titulo">Detalhes</h4>
+            <div class="table-container detalhes-tabela">
+              <table>
+                <thead id="tabelaDetalhesMicroCabecalho"></thead>
+                <tbody id="tabelaDetalhesMicro">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Resumo Final da Carga -->
+    <div id="modalResumoFinal" class="modal-overlay modal-resumo" style="display: none;">
+      <div class="resumo-layout">
+
+        <div class="modal-content card-container resumo-principal">
+          <h2 class="resumo-titulo">Conferência finalizada</h2>
+          <p class="resumo-descricao">Esta carga foi marcada como concluída. Abaixo está o resumo da operação.</p>
+
+          <div class="micro-grid micro-grid-compacto">
+            <div class="micro-card clickable" id="cardResumoTaxa" title="Clique para ver os itens já auditados">
+              <span class="micro-card-label">Taxa de conclusão</span>
+              <span class="micro-card-value cor-ok" id="resumoTaxaConclusao">0%</span>
+            </div>
+            <div class="micro-card clickable" id="cardResumoAuditados" title="Clique para ver os itens já auditados">
+              <span class="micro-card-label">Itens auditados (total)</span>
+              <span class="micro-card-value" id="resumoItensAuditados">0 / 0</span>
+            </div>
+            <div class="micro-card clickable" id="cardResumoPendentes" title="Clique para ver todos os itens não auditados">
+              <span class="micro-card-label">Itens pendentes (não bipados)</span>
+              <span class="micro-card-value cor-brand" id="resumoPendentesGeral">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardResumoParciais" title="Clique para ver os itens pendentes em pedidos abertos">
+              <span class="micro-card-label">Pedidos parciais incompletos</span>
+              <span class="micro-card-value cor-brand" id="resumoParciais">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardResumoRecusados" title="Clique para ver os itens barrados">
+              <span class="micro-card-label">Itens recusados (bloqueados)</span>
+              <span class="micro-card-value cor-perigo" id="resumoRecusados">0</span>
+            </div>
+            <div class="micro-card clickable" id="cardResumoNaoEncontrados" title="Clique para ver itens bipados fora da carga">
+              <span class="micro-card-label">Divergências (fora da lista)</span>
+              <span class="micro-card-value cor-violeta" id="resumoNaoEncontrados">0</span>
+            </div>
+          </div>
+
+          <!-- Contentor para a tabela de detalhes do Resumo -->
+          <div id="detalhesResumoContainer" class="detalhes-container" style="display: none;">
+            <h4 id="detalhesResumoTitulo" class="detalhes-titulo">Detalhes</h4>
+            <div class="table-container detalhes-tabela detalhes-tabela-baixa">
+              <table>
+                <thead id="tabelaDetalhesResumoCabecalho"></thead>
+                <tbody id="tabelaDetalhesResumo">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAINEL DE AÇÕES LATERAIS -->
+        <div class="resumo-acoes">
+            <button type="button" id="btnExportarResumo" class="btn-brand btn-bloco">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Exportar Relatório
+            </button>
+            <button type="button" id="btnContinuarAuditoria" class="btn-secundario btn-bloco">
+                Reabrir Conferência
+            </button>
+            <button type="button" id="btnVoltarSelecao" class="btn-fantasma btn-bloco">
+                Voltar para Seleção
+            </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Modal de Confirmação de Finalização -->
+    <div id="modalConfirmacao" class="modal-overlay modal-z2" style="display: none;">
+      <div class="modal-content card-container modal-dialogo">
+        <h2 class="dialogo-titulo">Confirmar finalização</h2>
+        <p class="dialogo-texto">Deseja marcar esta conferência como <strong>FINALIZADA</strong>?<br><br>Isto exibirá o painel de resumo e travará temporariamente a operação de bipagem.</p>
+        <div class="dialogo-botoes">
+          <button type="button" id="btnCancelarFinalizacao" class="btn-fantasma">Cancelar</button>
+          <button type="button" id="btnConfirmarFinalizacao" class="btn-brand">Sim, finalizar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Alerta Genérico (Etiqueta Inválida / Erro Estrutural) -->
+    <div id="modalAlertaEtiqueta" class="modal-overlay modal-z3" style="display: none;">
+      <div class="modal-content card-container modal-dialogo dialogo-perigo">
+        <div class="dialogo-icone">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h2 class="dialogo-titulo">Atenção!</h2>
+        <p id="textoAlertaEtiqueta" class="dialogo-texto">Mensagem de erro aqui.</p>
+        <button type="button" id="btnFecharAlertaEtiqueta" class="btn-perigo btn-bloco">Entendido</button>
+      </div>
+    </div>
+
+    <!-- Modal: Bloqueio em Massa (Sinalizar Recusas) -->
+    <div id="modalBloqueioEmMassa" class="modal-overlay modal-z3" style="display: none;">
+      <div class="modal-content card-container modal-formulario">
+        <div class="modal-header">
+          <h2 class="card-title">Sinalizar recusas (bloqueio)</h2>
+          <button type="button" id="btnFecharModalBloqueio" class="btn-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="dialogo-texto texto-esquerda">
+            Carga selecionada: <strong id="labelCargaBloqueio" class="texto-forte">Nenhuma</strong><br>
+            Cole a lista de itens que deseja marcar como <strong>"Não Receber"</strong> na base de dados.
+          </p>
+
+          <div class="input-group campo-formulario">
+            <label for="tipoBuscaBloqueio">Coluna de busca</label>
+            <select id="tipoBuscaBloqueio">
+              <option value="PEDIDO">Número do Pedido Faturado</option>
+              <option value="NF">Nota Fiscal (NF)</option>
+            </select>
+          </div>
+
+          <div class="input-group campo-formulario">
+            <label for="listaBloqueio">Valores (um por linha ou separados por vírgula)</label>
+            <textarea id="listaBloqueio" rows="6" placeholder="Exemplo:&#10;123456&#10;789012"></textarea>
+          </div>
+
+          <div id="msgBloqueioProgresso" class="msg-progresso" style="display: none;">A processar bloqueios...</div>
+
+          <div class="dialogo-botoes dialogo-botoes-direita">
+            <button type="button" id="btnCancelarBloqueio" class="btn-fantasma">Cancelar</button>
+            <button type="button" id="btnConfirmarBloqueio" class="btn-perigo">Aplicar bloqueio</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Upload de Carga -->
+    <div id="modalUpload" class="modal-overlay modal-z3" style="display: none;">
+      <div class="modal-content card-container modal-formulario">
+        <div class="modal-header">
+          <h2 class="card-title">Upload de nova carga</h2>
+          <button type="button" id="btnFecharModalUpload" class="btn-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-group campo-formulario">
+            <label for="dataNovaCarga">Data da carga (dará o nome à aba)</label>
+            <input type="date" id="dataNovaCarga">
+          </div>
+          <div class="input-group campo-formulario">
+            <label for="arquivoNovaCarga">Ficheiro (Excel ou CSV)</label>
+            <div id="dropZoneUpload" class="drop-zone">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p id="dropZoneText" class="drop-zone-texto">
+                Arraste e solte o ficheiro Excel aqui<br>ou <strong style="color: var(--emerald); cursor: pointer;">clique para procurar</strong>
+              </p>
+              <input type="file" id="arquivoNovaCarga" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
+            </div>
+          </div>
+          <div id="msgUploadProgresso" class="msg-progresso" style="display: none;">A processar ficheiro...</div>
+          <div class="dialogo-botoes dialogo-botoes-direita">
+            <button type="button" id="btnCancelarUpload" class="btn-fantasma">Cancelar</button>
+            <button type="button" id="btnConfirmarUpload" class="btn-brand">Enviar carga</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Upload Lista Chegada -->
+    <div id="modalUploadChegada" class="modal-overlay modal-z3" style="display: none;">
+      <div class="modal-content card-container modal-formulario">
+        <div class="modal-header">
+          <h2 class="card-title">Upload manual (Lista de Chegada)</h2>
+          <button type="button" id="btnFecharModalUploadChegada" class="btn-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="dialogo-texto texto-esquerda">
+            Esta ação fará o processamento local do ficheiro "Lista_chegada" e anexará os itens mais recentes à base "Base_Lista_Chegada".
+          </p>
+          <div class="input-group campo-formulario">
+            <label for="arquivoListaChegada">Ficheiro (Excel ou CSV)</label>
+            <div id="dropZoneUploadChegada" class="drop-zone">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p id="dropZoneTextChegada" class="drop-zone-texto">
+                Arraste e solte o ficheiro <strong>Lista_chegada</strong> aqui<br>ou <strong style="color: var(--brand-accent); cursor: pointer;">clique para procurar</strong>
+              </p>
+              <input type="file" id="arquivoListaChegada" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" style="display: none;">
+            </div>
+          </div>
+          <div id="msgUploadProgressoChegada" class="msg-progresso" style="display: none;">A ler ficheiro...</div>
+          <div class="dialogo-botoes dialogo-botoes-direita">
+            <button type="button" id="btnCancelarUploadChegada" class="btn-fantasma">Cancelar</button>
+            <button type="button" id="btnConfirmarUploadChegada" class="btn-brand">Processar D-0</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Alerta Específico do Upload -->
+    <div id="modalAlertaUpload" class="modal-overlay modal-z4" style="display: none;">
+      <div class="modal-content card-container modal-dialogo dialogo-aviso">
+        <div class="dialogo-icone">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </div>
+        <h2 class="dialogo-titulo">Aviso</h2>
+        <p id="textoAlertaUpload" class="dialogo-texto">Mensagem de erro de upload aqui.</p>
+        <button type="button" id="btnFecharAlertaUpload" class="btn-brand btn-bloco">Entendido</button>
+      </div>
+    </div>
+
+    <!-- Modal Global de Carregamento (Spinner) -->
+    <div id="globalLoader" class="modal-overlay modal-loader" style="display: none;">
       <div class="loader-spinner"></div>
-      <h3 id="globalLoaderText" style="color: var(--text-main); margin-top: 24px; font-size: 18px; font-weight: 600; text-align: center; letter-spacing: 0.5px;">A processar...</h3>
+      <h3 id="globalLoaderText" class="loader-texto">A processar...</h3>
     </div>
 
     <!-- Importação dos módulos JavaScript separados -->
@@ -484,6 +521,7 @@
     <?!= include('Script_Upload'); ?>
     <?!= include('Script_Bloqueio'); ?>
     <?!= include('Script_Filtros'); ?>
+    <?!= include('Script_Visual'); ?>
     <?!= include('Script'); ?>
   </body>
 </html>

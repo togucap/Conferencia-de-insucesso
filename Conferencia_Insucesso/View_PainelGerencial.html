@@ -1,7 +1,7 @@
-<div class="dashboard-grid" style="display: flex; flex-direction: column; gap: 24px;">
+<div class="dashboard-grid" style="display: flex; flex-direction: column; gap: 16px;">
   
   <!-- Filtros Gerenciais (Estrutura Base do Dropdown) -->
-  <div class="card-container" id="painelFiltrosGerenciais" style="border-top: 4px solid var(--brand-accent); padding: 16px 24px; margin-bottom: 0; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+  <div class="card-container" id="painelFiltrosGerenciais" style="padding: 14px 20px; margin-bottom: 0; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
     
     <!-- Filtro: CARGAS -->
     <div class="custom-dropdown" id="dropdownCarga" data-label="Cargas">
@@ -59,7 +59,7 @@
   <!-- Grid de KPIs Gerenciais (Divididos Lado a Lado) -->
   <div class="kpi-grid" style="margin-bottom: 0;">
     
-    <div class="kpi-card-split" style="border-top: 4px solid var(--brand-accent);">
+    <div class="kpi-card-split">
       <div class="kpi-split-header">
         <div class="kpi-title" style="margin-bottom: 2px;">PEDIDOS</div>
         <div class="kpi-sub" style="font-weight: normal; color: var(--text-support);">Pedidos únicos nas cargas</div>
@@ -76,7 +76,7 @@
       </div>
     </div>
     
-    <div class="kpi-card-split" style="border-top: 4px solid var(--brand-accent);">
+    <div class="kpi-card-split">
       <div class="kpi-split-header">
         <div class="kpi-title" style="margin-bottom: 2px;">VOLUMES / ETIQUETAS</div>
         <div class="kpi-sub" style="font-weight: normal; color: var(--text-support);">Total de itens registados</div>
@@ -93,7 +93,7 @@
       </div>
     </div>
     
-    <div class="kpi-card-split" style="border-top: 4px solid var(--red-alert);">
+    <div class="kpi-card-split">
       <div class="kpi-split-header">
         <div class="kpi-title" style="margin-bottom: 2px;">RECUSAS (NÃO RECEBER)</div>
         <div class="kpi-sub" style="font-weight: normal; color: var(--text-support);">Mercadorias a bloquear</div>
@@ -105,7 +105,7 @@
         </div>
         <div class="kpi-split-right">
           <div class="kpi-split-label" style="color: var(--red-alert);">Realizado</div>
-          <div class="kpi-split-val-realizado" id="dashRealRecusados" style="color: var(--red-alert); text-shadow: 0 0 15px rgba(239, 68, 68, 0.4);">...</div>
+          <div class="kpi-split-val-realizado" id="dashRealRecusados" style="color: var(--red-alert);">...</div>
         </div>
       </div>
     </div>
@@ -113,7 +113,7 @@
   </div>
 
   <!-- Gráficos Gerenciais (Layout dividido 50/50) -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-bottom: 24px;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px; margin-bottom: 24px;">
     
     <!-- Gráfico de Volume (Linha) -->
     <div class="card-container" style="padding: 24px; margin-bottom: 0;">

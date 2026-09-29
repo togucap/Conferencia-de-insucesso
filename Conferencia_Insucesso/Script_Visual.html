@@ -1,0 +1,330 @@
+<script>
+  // ============================================================================
+  // SCRIPT: CAMADA VISUAL (Modelo A)
+  // Responsabilidade: apresentação apenas. Não altera a lógica de auditoria.
+  //  - Chips de filtro com contagem (controlam o <select id="filtroTabela">)
+  //  - Busca na tabela (etiqueta, pedido, NF, produto)
+  //  - Coluna de status e cabeçalhos de pedido múltiplo na tabela
+  //  - Indicadores "pendentes" e "divergências" da faixa de KPIs
+  //  - Lista "Últimas leituras" do modo Bipar
+  //
+  // IMPORTANTE: a coluna de status e os cabeçalhos de grupo usam <th>, nunca <td>.
+  // O motor de bipagem e os filtros localizam células por querySelectorAll('td')[índice],
+  // por isso esses índices ficam intactos.
+  // ============================================================================
+
+  (function() {
+    const corpo = document.getElementById('tabelaCorpo');
+    const cabecalho = document.getElementById('tabelaCabecalho');
+    const filtro = document.getElementById('filtroTabela');
+    const chipsFiltro = document.getElementById('chipsFiltro');
+    const busca = document.getElementById('buscaTabela');
+    const listaLeituras = document.getElementById('listaLeituras');
+    const listaDivergencias = document.getElementById('listaNaoEncontrados');
+    const kpiPendentes = document.getElementById('kpiPendentes');
+    const kpiDivergencias = document.getElementById('kpiQtdDivergencias');
+    const btnVerDivergencias = document.getElementById('btnVerDivergencias');
+
+    const MAX_LEITURAS = 12;
+
+    function escaparHtml(txt) {
+      return String(txt == null ? '' : txt)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    window.escaparHtml = escaparHtml;
+
+    function textoCelula(tds, idx) {
+      return (typeof idx === 'number' && idx !== -1 && tds[idx]) ? tds[idx].textContent.trim() : '';
+    }
+
+    // ---------------------------------------------------------------------------
+    // Estado de cada linha da tabela
+    // ---------------------------------------------------------------------------
+    function estadoLinha(tr) {
+      const tds = tr.querySelectorAll('td');
+      const status = textoCelula(tds, typeof indiceStatus !== 'undefined' ? indiceStatus : -1);
+      const aval = textoCelula(tds, typeof indiceColunaAvaliacao !== 'undefined' ? indiceColunaAvaliacao : -1).toLowerCase();
+      const divergencia = status.includes('Divergência') || status.includes('Não Encontrado');
+      const recusar = aval === 'não receber' || aval === 'nao receber' || status === 'Bloqueado';
+      const conferido = tr.classList.contains('linha-conferida');
+      const pedido = textoCelula(tds, typeof indicePedidoFaturado !== 'undefined' ? indicePedidoFaturado : -1).replace('MSPC', '').trim();
+      return { divergencia, recusar, conferido, pedido, mspc: tr.dataset.mspc === 'true' };
+    }
+
+    function linhasDeItem() {
+      if (!corpo) return [];
+      return Array.from(corpo.children).filter(tr => tr.tagName === 'TR' && !tr.classList.contains('linha-grupo'));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Decoração da tabela (coluna de status + cabeçalhos de grupo + contagens)
+    // ---------------------------------------------------------------------------
+    function garantirCabecalhoStatus() {
+      if (!cabecalho) return 0;
+      const trHead = cabecalho.querySelector('tr');
+      if (!trHead) return 0;
+      if (!trHead.querySelector('th.col-status')) {
+        const th = document.createElement('th');
+        th.className = 'col-status';
+        th.textContent = 'Status';
+        trHead.insertBefore(th, trHead.firstChild);
+      }
+      return trHead.children.length;
+    }
+
+    function chipStatus(estado) {
+      if (estado.recusar) return { classe: 'st-recusar', texto: 'Não receber' };
+      if (estado.conferido) return { classe: 'st-ok', texto: 'Conferido' };
+      return { classe: 'st-pendente', texto: 'Pendente' };
+    }
+
+    function criarLinhaGrupo(colunas, html) {
+      const tr = document.createElement('tr');
+      tr.className = 'linha-grupo';
+      const th = document.createElement('th');
+      th.colSpan = colunas;
+      th.scope = 'rowgroup';
+      th.innerHTML = html;
+      tr.appendChild(th);
+      return tr;
+    }
+
+    function decorarTabela() {
+      if (!corpo) return;
+      const colunas = garantirCabecalhoStatus();
+
+      corpo.querySelectorAll('tr.linha-grupo').forEach(tr => tr.remove());
+
+      const itens = linhasDeItem();
+      const contagem = { todos: 0, pendentes: 0, conferidos: 0, recusar: 0, mspc: 0 };
+      const grupos = [];
+      let grupoAtual = null;
+      let grupoUnitarios = null;
+
+      itens.forEach(tr => {
+        const est = estadoLinha(tr);
+
+        // Coluna de status (um <th> no início da linha)
+        let thStatus = tr.firstElementChild && tr.firstElementChild.classList.contains('col-status') ? tr.firstElementChild : null;
+        if (!thStatus) {
+          thStatus = document.createElement('th');
+          thStatus.className = 'col-status';
+          thStatus.scope = 'row';
+          tr.insertBefore(thStatus, tr.firstChild);
+        }
+        const chip = chipStatus(est);
+        const htmlChip = `<span class="chip-status ${chip.classe}">${chip.texto}</span>`;
+        if (thStatus.innerHTML !== htmlChip) thStatus.innerHTML = htmlChip;
+        tr.classList.toggle('linha-recusar', est.recusar && !est.divergencia);
+
+        if (est.divergencia) return;
+
+        contagem.todos++;
+        if (est.conferido) contagem.conferidos++;
+        if (est.recusar) contagem.recusar++;
+        if (!est.conferido && !est.recusar) contagem.pendentes++;
+        if (est.mspc) contagem.mspc++;
+
+        // Agrupamento: pedidos múltiplos ficam juntos no topo (ordenação do Script_Dados)
+        const totalPedido = (typeof mapaPedidosTotal !== 'undefined' && est.pedido) ? (mapaPedidosTotal[est.pedido] || 0) : 0;
+        if (totalPedido > 1) {
+          if (!grupoAtual || grupoAtual.pedido !== est.pedido) {
+            grupoAtual = { pedido: est.pedido, primeira: tr, linhas: [], conferidos: 0, recusar: 0, mspc: false, multiplo: true };
+            grupos.push(grupoAtual);
+          }
+        } else {
+          if (!grupoUnitarios) {
+            grupoUnitarios = { pedido: '', primeira: tr, linhas: [], conferidos: 0, recusar: 0, mspc: false, multiplo: false, pedidos: new Set() };
+            grupos.push(grupoUnitarios);
+          }
+          grupoAtual = grupoUnitarios;
+          if (est.pedido) grupoUnitarios.pedidos.add(est.pedido);
+        }
+        grupoAtual.linhas.push(tr);
+        if (est.conferido) grupoAtual.conferidos++;
+        if (est.recusar) grupoAtual.recusar++;
+        if (est.mspc) grupoAtual.mspc = true;
+      });
+
+      // Só vale a pena mostrar "Pedidos unitários" se também existirem múltiplos
+      const temMultiplos = grupos.some(g => g.multiplo);
+
+      grupos.forEach(g => {
+        if (!g.multiplo && !temMultiplos) return;
+        const total = g.linhas.length;
+        const pct = total ? Math.round((g.conferidos / total) * 100) : 0;
+        const titulo = g.multiplo ? `Pedido ${escaparHtml(g.pedido)}` : 'Pedidos unitários';
+        const meta = g.multiplo ? `Múltiplo · ${total} itens` : `${g.pedidos.size} pedidos · 1 item cada`;
+        const extra = g.recusar ? ` · ${g.recusar} a recusar` : '';
+        const html = `
+          <div class="grupo-conteudo">
+            <span class="grupo-titulo">${titulo}</span>
+            <span>${meta}${extra}</span>
+            ${g.mspc && g.multiplo ? '<span class="tag-mspc">MSPC</span>' : ''}
+            <span class="grupo-progresso">${g.conferidos} de ${total} bipados
+              <span class="grupo-barra"><span style="width: ${pct}%"></span></span>
+            </span>
+          </div>`;
+        const trGrupo = criarLinhaGrupo(colunas || 1, html);
+        const algumaVisivel = g.linhas.some(l => l.style.display !== 'none');
+        trGrupo.style.display = algumaVisivel ? '' : 'none';
+        corpo.insertBefore(trGrupo, g.primeira);
+      });
+
+      // Contagens nos chips
+      if (chipsFiltro) {
+        Object.keys(contagem).forEach(chave => {
+          const el = chipsFiltro.querySelector(`[data-count="${chave}"]`);
+          if (el) el.textContent = contagem[chave];
+        });
+        const ativo = filtro ? filtro.value : 'todos';
+        chipsFiltro.querySelectorAll('.chip-filtro').forEach(b => {
+          const on = b.dataset.filtro === ativo;
+          b.classList.toggle('ativo', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      }
+
+      atualizarIndicadores();
+    }
+
+    function atualizarIndicadores() {
+      if (kpiPendentes && typeof totalItensCarga !== 'undefined') {
+        kpiPendentes.textContent = Math.max(0, totalItensCarga - itensConferidosCarga);
+      }
+      if (kpiDivergencias && typeof divergenciasBipadas !== 'undefined') {
+        const n = divergenciasBipadas.size;
+        kpiDivergencias.textContent = n;
+        if (btnVerDivergencias) {
+          btnVerDivergencias.disabled = n === 0;
+          btnVerDivergencias.textContent = n === 0 ? 'Nenhuma etiqueta fora da carga' : 'Ver etiquetas fora da carga';
+        }
+      }
+    }
+
+    // Observa a tabela e reaplica a decoração (agrupado num único frame)
+    let agendado = false;
+    const observador = new MutationObserver(agendarDecoracao);
+    function ligarObservador() {
+      if (corpo) observador.observe(corpo, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'], characterData: true });
+    }
+    function agendarDecoracao() {
+      if (agendado) return;
+      agendado = true;
+      requestAnimationFrame(() => {
+        agendado = false;
+        observador.disconnect();
+        try { aplicarBusca(); decorarTabela(); } finally { ligarObservador(); }
+      });
+    }
+    ligarObservador();
+
+    if (listaDivergencias) {
+      new MutationObserver(atualizarIndicadores).observe(listaDivergencias, { childList: true });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Filtro por chips e busca
+    // ---------------------------------------------------------------------------
+    if (chipsFiltro && filtro) {
+      chipsFiltro.addEventListener('click', function(e) {
+        const chip = e.target.closest('.chip-filtro');
+        if (!chip) return;
+        filtro.value = chip.dataset.filtro;
+        filtro.dispatchEvent(new Event('change'));
+      });
+    }
+
+    function aplicarBusca() {
+      if (!busca || !corpo) return;
+      const termo = busca.value.trim().toLowerCase();
+      if (!termo) return;
+      linhasDeItem().forEach(tr => {
+        if (tr.style.display === 'none') return;
+        if (!tr.textContent.toLowerCase().includes(termo)) tr.style.display = 'none';
+      });
+    }
+
+    if (busca && filtro) {
+      // Reaplica o filtro atual (que repõe a visibilidade) e depois a busca
+      busca.addEventListener('input', () => filtro.dispatchEvent(new Event('change')));
+    }
+
+    if (filtro) {
+      // Registado depois dos listeners de Script_UI/Script_Dados: corre por último
+      filtro.addEventListener('change', agendarDecoracao);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Painel de divergências a partir da faixa de KPIs
+    // ---------------------------------------------------------------------------
+    if (btnVerDivergencias) {
+      btnVerDivergencias.addEventListener('click', function() {
+        const container = document.getElementById('containerNaoEncontrados');
+        const corpoErros = document.getElementById('corpoNaoEncontrados');
+        const icone = document.getElementById('iconeRetratilErros');
+        if (!container || container.style.display === 'none') return;
+        if (corpoErros) corpoErros.style.display = 'block';
+        if (icone) icone.style.transform = 'rotate(0deg)';
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Últimas leituras (modo Bipar)
+    // ---------------------------------------------------------------------------
+    const TIPOS_LEITURA = {
+      'ok':                   { classe: 'st-ok',          texto: 'Conferido' },
+      'bloqueio':             { classe: 'st-recusar',     texto: 'Não receber' },
+      'divergencia':          { classe: 'st-divergencia', texto: 'Fora da carga' },
+      'divergencia-repetida': { classe: 'st-divergencia', texto: 'Já registada' },
+      'repetido':             { classe: 'st-repetido',    texto: 'Já conferido' },
+      'invalido':             { classe: 'st-repetido',    texto: 'Inválido' }
+    };
+
+    window.registrarLeituraVisual = function(codigo, tipo, produto) {
+      if (!listaLeituras) return;
+      const vazio = listaLeituras.querySelector('.leituras-vazio');
+      if (vazio) vazio.remove();
+      const t = TIPOS_LEITURA[tipo] || TIPOS_LEITURA.repetido;
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const li = document.createElement('li');
+      li.className = 'leitura-item';
+      li.innerHTML = `
+        <span class="leitura-hora">${hora}</span>
+        <span class="leitura-info">
+          <span class="leitura-cod">${escaparHtml(codigo)}</span>
+          <span class="leitura-prod">${escaparHtml(produto || (tipo === 'divergencia' ? 'Etiqueta não consta na carga' : ''))}</span>
+        </span>
+        <span class="chip-status ${t.classe}">${t.texto}</span>`;
+      listaLeituras.prepend(li);
+      while (listaLeituras.children.length > MAX_LEITURAS) listaLeituras.lastElementChild.remove();
+    };
+
+    function limparSessaoVisual() {
+      if (listaLeituras) listaLeituras.innerHTML = '<li class="leituras-vazio">Nenhuma leitura ainda.</li>';
+      if (busca) busca.value = '';
+      const corpoErros = document.getElementById('corpoNaoEncontrados');
+      const icone = document.getElementById('iconeRetratilErros');
+      if (corpoErros) corpoErros.style.display = 'none';
+      if (icone) icone.style.transform = 'rotate(180deg)';
+    }
+
+    const btnCarregarLocal = document.getElementById('btnCarregar');
+    const btnVoltarLocal = document.getElementById('btnVoltarSelecao');
+    if (btnCarregarLocal) btnCarregarLocal.addEventListener('click', limparSessaoVisual);
+    if (btnVoltarLocal) btnVoltarLocal.addEventListener('click', limparSessaoVisual);
+
+    // ---------------------------------------------------------------------------
+    // Ícones usados pelos cartões de resultado da bipagem (Script.html)
+    // ---------------------------------------------------------------------------
+    window.ICONES_BIPE = {
+      ok: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>',
+      bloqueio: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"></path><path d="m9 9 6 6M15 9l-6 6"></path></svg>',
+      alerta: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.5 20h19z"></path><path d="M12 10v4M12 17.5v.5"></path></svg>',
+      repetido: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"></path></svg>',
+      relogio: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>'
+    };
+  })();
+</script>
