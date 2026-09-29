@@ -149,7 +149,7 @@ function iniciarCruzamentoCarga(dataISO, nfsEntrada) {
     agendarContinuacao_(CRUZ_CONFIG.TEMPO_LIMITE_MINUTOS + 2);
     return { sucesso: true, job: job };
   } catch (e) {
-    return { erro: 'Não foi possível iniciar o cruzamento: ' + e.message };
+    return { erro: explicarErroPermissao_('Não foi possível iniciar o cruzamento: ' + e.message) };
   } finally {
     lock.releaseLock();
   }
@@ -219,7 +219,7 @@ function executarEtapa_() {
     executarEtapaInterna_();
   } catch (e) {
     console.error('Erro no cruzamento: ' + (e && e.stack || e));
-    falhar_('Erro inesperado no cruzamento: ' + (e && e.message || e));
+    falhar_(explicarErroPermissao_('Erro inesperado no cruzamento: ' + (e && e.message || e)));
   }
 }
 
@@ -267,7 +267,7 @@ function executarEtapaInterna_() {
   try {
     arquivos = obterListaArquivos_(ss); // lista do Drive feita só na 1ª etapa
   } catch (e) {
-    return falhar_('Não foi possível aceder à pasta dos relatórios no Drive: ' + e.message);
+    return falhar_(explicarErroPermissao_('Não foi possível aceder à pasta dos relatórios no Drive: ' + e.message));
   }
   if (!arquivos.length) {
     return falhar_(`Nenhum relatório "${CRUZ_CONFIG.PREFIXO_ARQUIVO}*.csv" foi encontrado na pasta do Drive.`);
@@ -898,15 +898,51 @@ function letraParaIndice(letra) {
 // ==========================================
 // AGENDAMENTO, ESTADO E AVISOS
 // ==========================================
+/**
+ * Os gatilhos de tempo são só a rede de segurança para continuar com a página fechada.
+ * Se a permissão "script.scriptapp" ainda não foi concedida por quem publicou o Web App,
+ * o cruzamento NÃO falha: continua conduzido pela página aberta e mostra um aviso.
+ */
 function agendarContinuacao_(minutos) {
-  removerGatilhos_();
-  ScriptApp.newTrigger(CRUZ_FUNCAO_CONTINUACAO).timeBased().after(Math.round(minutos * 60 * 1000)).create();
+  if (!removerGatilhos_()) return false;
+  try {
+    ScriptApp.newTrigger(CRUZ_FUNCAO_CONTINUACAO).timeBased().after(Math.round(minutos * 60 * 1000)).create();
+    return true;
+  } catch (e) {
+    registrarFalhaGatilho_(e);
+    return false;
+  }
 }
 
 function removerGatilhos_() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === CRUZ_FUNCAO_CONTINUACAO) ScriptApp.deleteTrigger(t);
+  try {
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === CRUZ_FUNCAO_CONTINUACAO) ScriptApp.deleteTrigger(t);
+    });
+    return true;
+  } catch (e) {
+    registrarFalhaGatilho_(e);
+    return false;
+  }
+}
+
+function registrarFalhaGatilho_(e) {
+  console.warn('Gatilhos indisponíveis: ' + (e && e.message || e));
+  const job = lerJobCruzamento_();
+  if (!job || job.status !== 'em_andamento' || job.aviso) return;
+  atualizarJobCruzamento_({
+    aviso: 'A continuação automática em segundo plano não está autorizada (permissão de gatilhos). ' +
+      'Mantenha esta página aberta até o cruzamento terminar. Para corrigir: quem publicou o Web App ' +
+      'deve executar "forcarPermissoes" no editor do Apps Script e publicar uma nova versão.'
   });
+}
+
+/** Acrescenta a orientação de autorização quando o erro é de permissão. */
+function explicarErroPermissao_(msg) {
+  msg = String(msg || '');
+  if (!/permiss|authoriz|autoriza|scope/i.test(msg)) return msg;
+  return msg + ' — Quem publicou o Web App deve abrir o editor do Apps Script, executar a função ' +
+    '"forcarPermissoes", aceitar as permissões e publicar uma nova versão da implantação.';
 }
 
 function lerEstado_() {
@@ -939,16 +975,57 @@ function notificar_(titulo, mensagem, final) {
   }
 }
 
+/**
+ * Pede/valida todas as permissões usadas pela Conferência e pelo Cruzamento.
+ *
+ * COMO USAR: no editor do Apps Script, com a conta que PUBLICA o Web App,
+ * selecione "forcarPermissoes" na barra de funções e clique em Executar.
+ * O Google mostra a janela de autorização; depois publique uma nova versão
+ * (Implantar › Gerenciar implantações › editar › Nova versão).
+ * Também está no menu "Cruzamento NF" da planilha.
+ *
+ * Mostra o resultado de cada serviço (alerta na planilha ou registo de execução no editor).
+ */
 function forcarPermissoes() {
+  const testes = [
+    ['Planilha', () => SpreadsheetApp.getActiveSpreadsheet().getName()],
+    ['Drive: pasta dos relatórios de faturamento', () => DriveApp.getFolderById(CRUZ_CONFIG.FOLDER_ID).getName()],
+    ['Pedidos externos (download dos relatórios)', () => {
+      const r = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+      });
+      if (r.getResponseCode() !== 200) throw new Error('HTTP ' + r.getResponseCode());
+      return 'OK';
+    }],
+    ['Gatilhos de tempo (continuação automática)', () => ScriptApp.getProjectTriggers().length + ' gatilho(s)'],
+    ['Envio de e-mail', () => MailApp.getRemainingDailyQuota() + ' e-mails restantes hoje'],
+    ['E-mail da conta', () => Session.getEffectiveUser().getEmail()]
+  ];
+
+  const linhas = [];
+  let falhas = 0;
+  testes.forEach(([nome, fn]) => {
+    try {
+      const r = fn();
+      linhas.push('✔ ' + nome + (r !== undefined && r !== '' ? ' — ' + r : ''));
+    } catch (e) {
+      falhas++;
+      linhas.push('✖ ' + nome + ' — ' + (e && e.message || e));
+    }
+  });
+
+  const titulo = falhas ? `Faltam ${falhas} permissão(ões)` : 'Todas as permissões estão concedidas';
+  const texto = linhas.join('\n') + (falhas
+    ? '\n\nConfirme que o ficheiro appsscript.json do projeto tem todas as permissões (oauthScopes) ' +
+      'e execute esta função no editor do Apps Script com a conta que publica o Web App.'
+    : '\n\nSe o Web App ainda mostrar erro de permissão, publique uma nova versão da implantação.');
+
+  console.log(titulo + '\n' + texto);
   try {
-    DriveApp.getRootFolder();
-    SpreadsheetApp.getActiveSpreadsheet();
-    UrlFetchApp.fetch('https://www.google.com');
-    ScriptApp.getProjectTriggers();
-    MailApp.getRemainingDailyQuota();
-    Session.getEffectiveUser().getEmail();
-    SpreadsheetApp.getUi().alert('Sucesso!', 'Todas as permissões concedidas.', SpreadsheetApp.getUi().ButtonSet.OK);
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(titulo, texto, ui.ButtonSet.OK);
   } catch (e) {
-    SpreadsheetApp.getUi().alert('Aviso', 'Conceda as permissões na tela do Google.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // Executado a partir do editor: o resultado fica no "Registo de execução".
   }
+  return titulo + '\n' + texto;
 }

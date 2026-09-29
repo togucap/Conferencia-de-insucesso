@@ -32,6 +32,7 @@
     const contagem = el('cruzContagem');
     const barra = el('cruzBarra');
     const mensagem = el('cruzMensagem');
+    const aviso = el('cruzAviso');
     const passos = [el('cruzPasso1'), el('cruzPasso2'), el('cruzPasso3'), el('cruzPasso4')];
     const blocoResultado = el('cruzResultado');
     const blocoResumo = el('cruzResumo');
@@ -263,6 +264,12 @@
         let hora = '';
         try { hora = st.inicio ? new Date(st.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''; } catch (e) {}
         subtitulo.textContent = `${st.totalNFs || 0} NF(s)` + (hora ? ` · iniciado às ${hora}` : '') + (st.usuario ? ` por ${st.usuario}` : '');
+      }
+
+      if (aviso) {
+        const mostrar = !!st.aviso && st.status === 'em_andamento';
+        aviso.textContent = mostrar ? st.aviso : '';
+        aviso.style.display = mostrar ? '' : 'none';
       }
 
       const total = st.relatoriosTotal || 0;
