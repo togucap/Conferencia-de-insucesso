@@ -904,6 +904,7 @@ function letraParaIndice(letra) {
  * o cruzamento NÃO falha: continua conduzido pela página aberta e mostra um aviso.
  */
 function agendarContinuacao_(minutos) {
+  if (gatilhosIndisponiveisNoJob_()) return false;
   if (!removerGatilhos_()) return false;
   try {
     ScriptApp.newTrigger(CRUZ_FUNCAO_CONTINUACAO).timeBased().after(Math.round(minutos * 60 * 1000)).create();
@@ -915,6 +916,7 @@ function agendarContinuacao_(minutos) {
 }
 
 function removerGatilhos_() {
+  if (gatilhosIndisponiveisNoJob_()) return false;
   try {
     ScriptApp.getProjectTriggers().forEach(t => {
       if (t.getHandlerFunction() === CRUZ_FUNCAO_CONTINUACAO) ScriptApp.deleteTrigger(t);
@@ -926,23 +928,44 @@ function removerGatilhos_() {
   }
 }
 
-function registrarFalhaGatilho_(e) {
-  console.warn('Gatilhos indisponíveis: ' + (e && e.message || e));
+/** Neste cruzamento já se sabe que os gatilhos não estão autorizados: não volta a tentar. */
+function gatilhosIndisponiveisNoJob_() {
   const job = lerJobCruzamento_();
-  if (!job || job.status !== 'em_andamento' || job.aviso) return;
+  return !!(job && job.status === 'em_andamento' && job.semGatilhos);
+}
+
+function registrarFalhaGatilho_(e) {
+  const job = lerJobCruzamento_();
+  if (!job || job.status !== 'em_andamento' || job.semGatilhos) return;
+  console.warn('Gatilhos indisponíveis (o cruzamento continua pela página aberta): ' + (e && e.message || e));
   atualizarJobCruzamento_({
+    semGatilhos: true,
     aviso: 'A continuação automática em segundo plano não está autorizada (permissão de gatilhos). ' +
-      'Mantenha esta página aberta até o cruzamento terminar. Para corrigir: quem publicou o Web App ' +
-      'deve executar "forcarPermissoes" no editor do Apps Script e publicar uma nova versão.'
+      'Mantenha esta página aberta até o cruzamento terminar.',
+    avisoUrl: obterUrlAutorizacao_()
   });
+}
+
+/**
+ * Link de autorização das permissões em falta para a conta que executa o script
+ * (no Web App: a conta que o publicou). null se já está tudo autorizado ou se indisponível.
+ */
+function obterUrlAutorizacao_() {
+  try {
+    const info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    if (info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) return info.getAuthorizationUrl();
+  } catch (e) { /* indisponível neste contexto */ }
+  return null;
 }
 
 /** Acrescenta a orientação de autorização quando o erro é de permissão. */
 function explicarErroPermissao_(msg) {
   msg = String(msg || '');
   if (!/permiss|authoriz|autoriza|scope/i.test(msg)) return msg;
-  return msg + ' — Quem publicou o Web App deve abrir o editor do Apps Script, executar a função ' +
-    '"forcarPermissoes", aceitar as permissões e publicar uma nova versão da implantação.';
+  const url = obterUrlAutorizacao_();
+  return msg + ' — Quem publicou o Web App deve autorizar todas as permissões' +
+    (url ? ` (${url})` : ' executando "forcarPermissoes" no editor do Apps Script') +
+    ' e marcar TODAS as caixas na janela do Google.';
 }
 
 function lerEstado_() {
@@ -987,6 +1010,12 @@ function notificar_(titulo, mensagem, final) {
  * Mostra o resultado de cada serviço (alerta na planilha ou registo de execução no editor).
  */
 function forcarPermissoes() {
+  // Consentimento granular do Google: o script pode ter só parte das permissões.
+  // requireAllScopes interrompe esta execução e abre a janela de autorização com as que faltam
+  // (no editor ou pelo menu da planilha). Depois de aceitar, execute de novo para ver o resultado.
+  // Sem try/catch de propósito: a interrupção é o que faz o Google mostrar a janela.
+  if (typeof ScriptApp.requireAllScopes === 'function') ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+
   const testes = [
     ['Planilha', () => SpreadsheetApp.getActiveSpreadsheet().getName()],
     ['Drive: pasta dos relatórios de faturamento', () => DriveApp.getFolderById(CRUZ_CONFIG.FOLDER_ID).getName()],
@@ -1015,9 +1044,12 @@ function forcarPermissoes() {
   });
 
   const titulo = falhas ? `Faltam ${falhas} permissão(ões)` : 'Todas as permissões estão concedidas';
+  const url = falhas ? obterUrlAutorizacao_() : null;
   const texto = linhas.join('\n') + (falhas
-    ? '\n\nConfirme que o ficheiro appsscript.json do projeto tem todas as permissões (oauthScopes) ' +
-      'e execute esta função no editor do Apps Script com a conta que publica o Web App.'
+    ? '\n\nO Google mostra uma caixa de seleção por permissão: é preciso marcar TODAS (ou "Selecionar tudo").' +
+      (url ? '\n\nAbra este link com a conta que publica o Web App, marque todas as caixas e confirme:\n' + url : '') +
+      '\n\nSe a janela não voltar a aparecer: em https://myaccount.google.com/connections remova o acesso ' +
+      'deste projeto e execute "forcarPermissoes" de novo no editor.'
     : '\n\nSe o Web App ainda mostrar erro de permissão, publique uma nova versão da implantação.');
 
   console.log(titulo + '\n' + texto);

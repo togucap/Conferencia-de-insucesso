@@ -268,7 +268,11 @@
 
       if (aviso) {
         const mostrar = !!st.aviso && st.status === 'em_andamento';
-        aviso.textContent = mostrar ? st.aviso : '';
+        let html = mostrar ? esc(st.aviso) : '';
+        if (mostrar && st.avisoUrl && /^https:\/\//.test(st.avisoUrl)) {
+          html += ` Se você publicou o Web App, <a href="${esc(st.avisoUrl)}" target="_blank" rel="noopener">autorize aqui</a> e marque todas as caixas.`;
+        }
+        aviso.innerHTML = html;
         aviso.style.display = mostrar ? '' : 'none';
       }
 
