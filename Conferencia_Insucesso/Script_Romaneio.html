@@ -1,0 +1,86 @@
+<script>
+  // ============================================================================
+  // SCRIPT: ROMANEIO DE DEVOLUÇÃO (teste do motor de PDF)
+  // Responsabilidade: pedir ao backend um romaneio de exemplo e mostrar os links dos PDFs
+  // ============================================================================
+  (function () {
+    const modal = document.getElementById('modalRomaneio');
+    const btnAbrir = document.getElementById('btnAbrirModalRomaneio');
+    const btnGerar = document.getElementById('btnGerarRomaneio');
+    const campoData = document.getElementById('dataRomaneio');
+    const msg = document.getElementById('msgRomaneio');
+    const resultado = document.getElementById('resultadoRomaneio');
+    if (!modal || !btnAbrir || !btnGerar) return;
+
+    const esc = t => String(t == null ? '' : t)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    function hojeISO() {
+      const d = new Date();
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    function abrir() {
+      if (!campoData.value) campoData.value = hojeISO();
+      msg.style.display = 'none';
+      modal.style.display = 'flex';
+    }
+    function fechar() { modal.style.display = 'none'; }
+
+    function item(titulo, info, url, rotuloLink) {
+      const falhou = info && info.erro;
+      const detalhe = falhou ? info.erro : (info && info.nome) || '';
+      const link = !falhou && url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(rotuloLink)}</a>` : '';
+      return `<div class="romaneio-item ${falhou ? 'erro' : 'ok'}">
+        <div class="romaneio-item-texto"><strong>${esc(titulo)}</strong><span>${esc(detalhe)}</span></div>${link}</div>`;
+    }
+
+    function mostrar(r) {
+      btnGerar.disabled = false;
+      msg.style.display = 'none';
+      const partes = [
+        item('PDF · motor Google Docs (principal)', r.docs, r.docs && r.docs.url, 'Abrir PDF'),
+        item('PDF · motor HTML direto (comparação)', r.html, r.html && r.html.url, 'Abrir PDF')
+      ];
+      if (r.modeloUrl) {
+        partes.push(item('Modelo no Google Docs', { nome: 'Ajustes feitos aqui valem para os próximos romaneios' }, r.modeloUrl, 'Abrir modelo'));
+      }
+      resultado.innerHTML = partes.join('');
+      resultado.style.display = 'flex';
+      if (r.segundos !== undefined) {
+        msg.textContent = `Concluído em ${r.segundos} s. Os PDFs ficaram na pasta "Romaneios".`;
+        msg.style.color = r.ok ? 'var(--ok-text)' : 'var(--red-alert)';
+        msg.style.display = 'block';
+      }
+    }
+
+    function falhar(e) {
+      btnGerar.disabled = false;
+      resultado.style.display = 'none';
+      msg.textContent = 'Não foi possível gerar o romaneio: ' + (e && e.message || e);
+      msg.style.color = 'var(--red-alert)';
+      msg.style.display = 'block';
+    }
+
+    function gerar() {
+      const opcoes = {
+        transportadora: document.getElementById('transportadoraRomaneio').value.trim() || 'GFL',
+        dataISO: campoData.value || hojeISO(),
+        textoLongo: document.getElementById('longoRomaneio').checked,
+        marcarEstados: document.getElementById('estadosRomaneio').checked
+      };
+      btnGerar.disabled = true;
+      resultado.style.display = 'none';
+      msg.textContent = 'A gerar o romaneio… Na primeira vez o modelo é criado no Docs e pode levar até 30 s.';
+      msg.style.color = 'var(--brand-accent)';
+      msg.style.display = 'block';
+      google.script.run.withSuccessHandler(mostrar).withFailureHandler(falhar).gerarRomaneioTeste(opcoes);
+    }
+
+    btnAbrir.addEventListener('click', abrir);
+    btnGerar.addEventListener('click', gerar);
+    document.getElementById('btnFecharModalRomaneio').addEventListener('click', fechar);
+    document.getElementById('btnCancelarRomaneio').addEventListener('click', fechar);
+  })();
+</script>

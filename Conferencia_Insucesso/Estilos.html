@@ -934,6 +934,28 @@
   }
   .indicador-cruz[hidden] { display: none; }
 
+  /* --- Romaneio (teste do motor de PDF) --- */
+  .romaneio-campos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .romaneio-opcao {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer;
+    font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-main);
+  }
+  .romaneio-opcao input { accent-color: var(--brand-accent); width: 16px; height: 16px; margin: 0; }
+  .romaneio-resultado { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 16px; }
+  .romaneio-item {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
+    background: var(--bg-subtle); border: 1px solid var(--border-color); font-size: 13px;
+  }
+  .romaneio-item.ok { background: var(--ok-bg); border-color: var(--ok-border); }
+  .romaneio-item.erro { border-color: var(--red-alert); }
+  .romaneio-item-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .romaneio-item-texto strong { color: var(--text-main); }
+  .romaneio-item-texto span { color: var(--text-support); overflow-wrap: anywhere; }
+  .romaneio-item.erro .romaneio-item-texto span { color: var(--red-alert); }
+  .romaneio-item a { margin-left: auto; flex-shrink: 0; color: var(--brand-accent); font-weight: 600; text-decoration: none; }
+  .romaneio-item a:hover { text-decoration: underline; }
+  @media (max-width: 560px) { .romaneio-campos { grid-template-columns: minmax(0, 1fr); } }
+
   /* ============================================================================
      MODO RECUSA (AVARIA)
      ============================================================================ */

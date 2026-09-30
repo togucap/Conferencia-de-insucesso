@@ -95,6 +95,8 @@ function onOpen() {
     .addItem('Autorizar permissões', 'forcarPermissoes')
     .addItem('Continuar cruzamento em andamento', 'continuarCruzamento')
     .addItem('Cancelar cruzamento em andamento', 'cancelarCruzamento')
+    .addSeparator()
+    .addItem('Romaneio: recriar modelo no Docs', 'recriarModeloRomaneio')
     .addToUi();
 }
 
@@ -1304,7 +1306,17 @@ function forcarPermissoes() {
     }],
     ['Gatilhos de tempo (continuação automática)', () => ScriptApp.getProjectTriggers().length + ' gatilho(s)'],
     ['Envio de e-mail', () => MailApp.getRemainingDailyQuota() + ' e-mails restantes hoje'],
-    ['E-mail da conta', () => Session.getEffectiveUser().getEmail()]
+    ['E-mail da conta', () => Session.getEffectiveUser().getEmail()],
+    ['Google Docs (romaneio em PDF)', () => {
+      // Abrir um documento exige a permissão "documents"; usa o modelo se já existir
+      const id = PropertiesService.getScriptProperties().getProperty('ROMANEIO_MODELO_ID');
+      if (id) {
+        try { return DocumentApp.openById(id).getName(); } catch (e) { if (!/not found|não encontrad|missing/i.test(e.message)) throw e; }
+      }
+      const teste = DocumentApp.create('teste_permissao_romaneio');
+      DriveApp.getFileById(teste.getId()).setTrashed(true);
+      return 'OK';
+    }]
   ];
 
   const linhas = [];
