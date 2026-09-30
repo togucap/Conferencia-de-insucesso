@@ -1307,6 +1307,10 @@ function forcarPermissoes() {
     ['Gatilhos de tempo (continuação automática)', () => ScriptApp.getProjectTriggers().length + ' gatilho(s)'],
     ['Envio de e-mail', () => MailApp.getRemainingDailyQuota() + ' e-mails restantes hoje'],
     ['E-mail da conta', () => Session.getEffectiveUser().getEmail()],
+    ['Drive partilhado dos romaneios', () => {
+      if (typeof ROMANEIO_CONFIG === 'undefined' || !ROMANEIO_CONFIG.DRIVE_ID) return 'não configurado';
+      return DriveApp.getFolderById(ROMANEIO_CONFIG.DRIVE_ID).getName();
+    }],
     ['Google Docs (romaneio em PDF)', () => {
       // Abrir um documento exige a permissão "documents"; usa o modelo se já existir
       const id = PropertiesService.getScriptProperties().getProperty('ROMANEIO_MODELO_ID');

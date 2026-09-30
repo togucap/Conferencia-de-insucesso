@@ -13,14 +13,19 @@
 // cada secção; gerarRomaneioPdf_(dados) só desenha.
 
 const ROMANEIO_CONFIG = {
-  // Ficheiro do logótipo, ou pasta onde ele é a única imagem
-  LOGO_ID: '1QQjtN3RkW0IhiNYfcgy8yMA5cW5p4twH',
-  // Pasta dos PDFs. Vazio = cria "Romaneios" na mesma pasta da Planilha Base
-  PASTA_ID: '',
+  // Drive partilhado com as pastas do romaneio (logótipo, PDFs e modelo)
+  DRIVE_ID: '0AN3saKJPOCg6Uk9PVA',
+  // Pasta do logótipo dentro do drive (usa a primeira imagem que encontrar)
+  NOME_PASTA_LOGO: 'Logo_KBM',
+  // Pasta dos PDFs dentro do drive (criada se não existir)
   NOME_PASTA: 'Romaneios',
+  // Opcional: ID de um ficheiro ou pasta do logótipo, que substitui NOME_PASTA_LOGO
+  LOGO_ID: '',
+  // Opcional: ID de uma pasta para os PDFs, que substitui NOME_PASTA
+  PASTA_ID: '',
   NOME_MODELO: 'Modelo_Romaneio_Devolucao (não apagar)',
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
-  VERSAO_MODELO: 2,
+  VERSAO_MODELO: 3,
   // Transportadora fixa (o campo no Web App fica travado)
   TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
@@ -484,15 +489,22 @@ function inserirLogo_(corpo) {
   const achado = corpo.findText('\\{\\{LOGO\\}\\}');
   if (!achado) return null;
 
-  let par = achado.getElement();
+  const texto = achado.getElement().asText();
+  let par = texto;
   while (par.getType() !== DocumentApp.ElementType.PARAGRAPH) par = par.getParent();
   par = par.asParagraph();
 
   let motivo;
   try {
     const logo = obterLogoRomaneio_();
-    par.setText('');
-    const img = par.appendInlineImage(logo);
+    // A imagem entra antes do texto e só depois o marcador sai: o Docs não aceita
+    // deixar o parágrafo com um texto vazio (setText('') falha com "elemento de texto vazio").
+    const img = par.insertInlineImage(0, logo);
+    if (texto.getText().replace(/\{\{LOGO\}\}/g, '').trim()) {
+      texto.deleteText(achado.getStartOffset(), achado.getEndOffsetInclusive());
+    } else {
+      texto.removeFromParent();
+    }
     const altura = ROMANEIO_CONFIG.ALTURA_LOGO_PT;
     const w = img.getWidth(), h = img.getHeight();
     if (w && h) img.setHeight(altura).setWidth(Math.round(w * altura / h));
@@ -542,8 +554,15 @@ function converterHtmlEmDoc_(html, nome, pastaId) {
 // ==========================================
 
 function obterPastaRomaneios_() {
-  if (ROMANEIO_CONFIG.PASTA_ID) return DriveApp.getFolderById(ROMANEIO_CONFIG.PASTA_ID);
+  if (ROMANEIO_CONFIG.PASTA_ID) return abrirPastaRomaneio_(ROMANEIO_CONFIG.PASTA_ID, 'pasta dos romaneios');
 
+  if (ROMANEIO_CONFIG.DRIVE_ID) {
+    const drive = abrirPastaRomaneio_(ROMANEIO_CONFIG.DRIVE_ID, 'drive partilhado');
+    const existentes = drive.getFoldersByName(ROMANEIO_CONFIG.NOME_PASTA);
+    return existentes.hasNext() ? existentes.next() : drive.createFolder(ROMANEIO_CONFIG.NOME_PASTA);
+  }
+
+  // Sem drive configurado: pasta "Romaneios" ao lado da Planilha Base
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty(ROMANEIO_CONFIG.PROP_PASTA);
   if (id) {
@@ -552,7 +571,6 @@ function obterPastaRomaneios_() {
       if (!pasta.isTrashed()) return pasta;
     } catch (e) { /* recria */ }
   }
-
   let mae;
   try {
     const pais = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getParents();
@@ -564,6 +582,15 @@ function obterPastaRomaneios_() {
   const pasta = existentes.hasNext() ? existentes.next() : mae.createFolder(ROMANEIO_CONFIG.NOME_PASTA);
   props.setProperty(ROMANEIO_CONFIG.PROP_PASTA, pasta.getId());
   return pasta;
+}
+
+function abrirPastaRomaneio_(id, descricao) {
+  try {
+    return DriveApp.getFolderById(id);
+  } catch (e) {
+    throw new Error('Não foi possível abrir o ' + descricao + ' (' + id + '). A conta que publica o Web App ' +
+      'precisa de ser membro do drive partilhado, com acesso de "Gestor de conteúdo". Detalhe: ' + e.message);
+  }
 }
 
 const ROMANEIO_MIME_PASTA = 'application/vnd.google-apps.folder';
@@ -578,7 +605,13 @@ const ROMANEIO_MIMES_DOCS = ['image/png', 'image/jpeg', 'image/gif'];
  */
 function obterLogoRomaneio_() {
   const id = ROMANEIO_CONFIG.LOGO_ID;
-  if (!id) throw new Error('LOGO_ID não configurado.');
+  if (!id) {
+    if (!ROMANEIO_CONFIG.DRIVE_ID) throw new Error('logótipo não configurado (DRIVE_ID ou LOGO_ID).');
+    const drive = abrirPastaRomaneio_(ROMANEIO_CONFIG.DRIVE_ID, 'drive partilhado');
+    const pastas = drive.getFoldersByName(ROMANEIO_CONFIG.NOME_PASTA_LOGO);
+    if (!pastas.hasNext()) throw new Error('a pasta "' + ROMANEIO_CONFIG.NOME_PASTA_LOGO + '" não existe no drive partilhado.');
+    return primeiraImagemDaPasta_(pastas.next());
+  }
 
   let arquivo = null;
   try { arquivo = DriveApp.getFileById(id); } catch (e) { /* pode ser uma pasta */ }
@@ -592,6 +625,10 @@ function obterLogoRomaneio_() {
   } catch (e) {
     throw new Error('o ID ' + id + ' não abre como ficheiro nem como pasta para a conta que publica o Web App (' + e.message + ').');
   }
+  return primeiraImagemDaPasta_(pasta);
+}
+
+function primeiraImagemDaPasta_(pasta) {
   const vistos = [];
   const erros = [];
   const arquivos = pasta.getFiles();
