@@ -936,11 +936,10 @@
 
   /* --- Romaneio (teste do motor de PDF) --- */
   .romaneio-campos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-  .romaneio-opcao {
-    display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer;
-    font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-main);
-  }
-  .romaneio-opcao input { accent-color: var(--brand-accent); width: 16px; height: 16px; margin: 0; }
+  .campo-travado { background: var(--bg-subtle) !important; color: var(--text-support) !important; cursor: not-allowed; }
+  .romaneio-nota { margin: -4px 0 14px; }
+  .romaneio-item.aviso { background: var(--brand-soft); border-color: var(--brand-accent); }
+  .romaneio-item.aviso .romaneio-item-texto span { color: var(--text-main); }
   .romaneio-resultado { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 16px; }
   .romaneio-item {
     display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;

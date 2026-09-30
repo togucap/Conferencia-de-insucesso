@@ -6,10 +6,11 @@
 //     (o "modelo"). Isto acontece uma única vez; depois a equipa pode ajustar o modelo no Docs.
 //  2. Para cada romaneio: copia o modelo, troca os marcadores {{...}}, escreve as linhas na
 //     área central, exporta em PDF para a pasta "Romaneios" e apaga a cópia.
-//  3. Motor alternativo (comparação): o mesmo HTML convertido diretamente em PDF, sem Docs.
+//  3. O logótipo é inserido em cada romaneio (marcador {{LOGO}}), por isso trocar a imagem
+//     no Drive não obriga a recriar o modelo.
 //
-// As regras de negócio (que NFs entram em cada secção) ficam fora deste ficheiro: o motor recebe
-// os dados já prontos em gerarRomaneioPdf_(dados).
+// Um romaneio por carga: montarDadosRomaneioCarga_ lê a aba da carga e decide o que entra em
+// cada secção; gerarRomaneioPdf_(dados) só desenha.
 
 const ROMANEIO_CONFIG = {
   // Ficheiro do logótipo, ou pasta onde ele é a única imagem
@@ -19,7 +20,9 @@ const ROMANEIO_CONFIG = {
   NOME_PASTA: 'Romaneios',
   NOME_MODELO: 'Modelo_Romaneio_Devolucao (não apagar)',
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
-  VERSAO_MODELO: 1,
+  VERSAO_MODELO: 2,
+  // Transportadora fixa (o campo no Web App fica travado)
+  TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
   PAGINA: 'A4',
   MARGEM_PT: 28,
@@ -29,10 +32,23 @@ const ROMANEIO_CONFIG = {
   COR_CINZA: '#a6a6a6',
   // Altura mínima da área central, para as assinaturas ficarem no fundo da página
   ALTURA_CONTEUDO_PT: 480,
+  // Caixas de estado do volume: saem todas marcadas
+  MARCAR_ESTADOS: true,
   ESTADOS: [
     ['perfeito', 'Volumes em perfeito estado'],
     ['amassado', 'Volume amassado'],
     ['rasgado', 'Volume rasgado']
+  ],
+  // Secções da área central, pela ordem do romaneio. mesmaLinha:false = NFs a partir da linha seguinte
+  SECOES: [
+    { chave: 'nao_encontradas', titulo: 'Notas não encontradas na carga' },
+    { chave: 'parciais', titulo: 'Notas aceitas parcialmente', mesmaLinha: false },
+    { chave: 'avaria', titulo: 'Notas recusadas por avaria' },
+    { chave: 'embalagem_vazia', titulo: 'Notas recusadas com embalagem vazia' },
+    { chave: 'prazo', titulo: 'Notas recusadas por prazo indenizatório' },
+    { chave: 'nao_kabum', titulo: 'Notas recusadas não pertencentes ao KaBuM' },
+    { chave: 'improcedentes', titulo: 'Notas recusadas por produtos improcedentes' },
+    { chave: 'fora_romaneio', titulo: 'Nota recusada fora do romaneio' }
   ],
   PROP_MODELO: 'ROMANEIO_MODELO_ID',
   PROP_VERSAO: 'ROMANEIO_MODELO_VERSAO',
@@ -49,28 +65,29 @@ const ROMANEIO_PAGINAS = {
 // ==========================================
 
 /**
- * Gera um romaneio com o conteúdo do exemplo, pelos dois motores, para validar o visual.
- * @param {Object} opcoes {transportadora, dataISO, textoLongo, marcarEstados}
+ * Gera o romaneio de uma carga e devolve o link do PDF.
+ * @param {Object} opcoes {carga: nome da aba, dataISO: data do cabeçalho (yyyy-MM-dd)}
  */
-function gerarRomaneioTeste(opcoes) {
+function gerarRomaneioCarga(opcoes) {
   opcoes = opcoes || {};
-  const dados = montarDadosRomaneioTeste_(opcoes);
-  const resultado = { ok: true, avisos: [] };
   const inicio = Date.now();
+  if (!opcoes.carga) throw new Error('Selecione a carga.');
 
+  const dados = montarDadosRomaneioCarga_(opcoes.carga, opcoes.dataISO);
+  let pdf;
   try {
-    resultado.docs = gerarRomaneioPdf_(dados);
+    pdf = gerarRomaneioPdf_(dados);
   } catch (e) {
-    resultado.docs = { erro: explicarErroRomaneio_(e) };
-  }
-  try {
-    resultado.html = gerarRomaneioPdfHtml_(dados);
-  } catch (e) {
-    resultado.html = { erro: explicarErroRomaneio_(e) };
+    throw new Error(explicarErroRomaneio_(e));
   }
 
-  resultado.ok = !resultado.docs.erro || !resultado.html.erro;
-  resultado.segundos = Math.round((Date.now() - inicio) / 100) / 10;
+  const resultado = {
+    ok: true,
+    pdf: { id: pdf.id, url: pdf.url, nome: pdf.nome },
+    resumo: dados.resumo,
+    avisos: pdf.avisos,
+    segundos: Math.round((Date.now() - inicio) / 100) / 10
+  };
   try {
     const modeloId = PropertiesService.getScriptProperties().getProperty(ROMANEIO_CONFIG.PROP_MODELO);
     if (modeloId) resultado.modeloUrl = 'https://docs.google.com/document/d/' + modeloId + '/edit';
@@ -104,9 +121,9 @@ function recriarModeloRomaneio() {
  *   listagem: {pedidos: number, data: ...} (opcional)
  *   secoes: [{titulo, linhas: [string | {nf, itens:[{qtd, produto}], obs}], mesmaLinha?}]
  *   volumes: number | string
- *   estados: {perfeito, amassado, rasgado} (true = caixa marcada)
+ *   estados: {perfeito, amassado, rasgado} (opcional; sem ele vale MARCAR_ESTADOS)
  *   nomeArquivo: string (opcional)
- * @return {{id, url, nome, paginas?}}
+ * @return {{id, url, nome, avisos: string[]}}
  */
 function gerarRomaneioPdf_(dados) {
   const pasta = obterPastaRomaneios_();
@@ -118,6 +135,10 @@ function gerarRomaneioPdf_(dados) {
     const doc = DocumentApp.openById(copia.getId());
     const corpo = doc.getBody();
 
+    const avisos = [];
+    const avisoLogo = inserirLogo_(corpo);
+    if (avisoLogo) avisos.push(avisoLogo);
+
     const campos = camposRomaneio_(dados);
     Object.keys(campos).forEach(chave => substituirMarcador_(corpo, chave, campos[chave]));
     preencherConteudoDoc_(corpo, linhasConteudoRomaneio_(dados));
@@ -125,7 +146,7 @@ function gerarRomaneioPdf_(dados) {
     doc.saveAndClose();
     const pdf = copia.getAs('application/pdf').setName(nome + '.pdf');
     const arquivo = pasta.createFile(pdf);
-    return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName() };
+    return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName(), avisos };
   } finally {
     try { copia.setTrashed(true); } catch (e) { console.warn('Não foi possível apagar a cópia temporária: ' + e.message); }
   }
@@ -191,37 +212,19 @@ function substituirMarcador_(corpo, chave, valor) {
 }
 
 // ==========================================
-// MOTOR ALTERNATIVO (HTML direto para PDF)
-// ==========================================
-
-function gerarRomaneioPdfHtml_(dados) {
-  const pasta = obterPastaRomaneios_();
-  const nome = nomeArquivoRomaneio_(dados) + ' (motor HTML)';
-  let logo = '';
-  try {
-    const blob = obterLogoRomaneio_();
-    logo = 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
-  } catch (e) { console.warn('Logótipo indisponível: ' + e.message); }
-
-  const html = montarHtmlRomaneio_(dados, { modo: 'direto', logo });
-  const pdf = Utilities.newBlob(html, 'text/html', nome + '.html').getAs('application/pdf').setName(nome + '.pdf');
-  const arquivo = pasta.createFile(pdf);
-  return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName() };
-}
-
-// ==========================================
 // CONTEÚDO
 // ==========================================
 
 function camposRomaneio_(dados) {
-  const estados = dados.estados || {};
+  const estados = dados.estados;
   const campos = {
-    TRANSPORTADORA: String(dados.transportadora || '').trim(),
+    TRANSPORTADORA: String(dados.transportadora || ROMANEIO_CONFIG.TRANSPORTADORA).trim(),
     DATA: formatarDataRomaneio_(dados.data || new Date()),
     VOLUMES: dados.volumes === undefined || dados.volumes === null ? '' : String(dados.volumes)
   };
   ROMANEIO_CONFIG.ESTADOS.forEach(([chave]) => {
-    campos['CX_' + chave.toUpperCase()] = estados[chave] ? '☒' : '☐';
+    const marcada = estados ? !!estados[chave] : ROMANEIO_CONFIG.MARCAR_ESTADOS;
+    campos['CX_' + chave.toUpperCase()] = marcada ? '☑' : '☐';
   });
   return campos;
 }
@@ -268,10 +271,12 @@ function formatarItemRomaneio_(item) {
 
 function nomeArquivoRomaneio_(dados) {
   if (dados.nomeArquivo) return String(dados.nomeArquivo);
-  const data = formatarDataRomaneio_(dados.data || new Date()).replace(/\//g, '-');
-  const transp = String(dados.transportadora || 'Transportadora').trim().replace(/[\\/:*?"<>|]+/g, '-');
+  const limpar = t => String(t).trim().replace(/[\\/:*?"<>|]+/g, '-');
+  const transp = limpar(dados.transportadora || ROMANEIO_CONFIG.TRANSPORTADORA);
+  const referencia = dados.carga ? 'carga ' + limpar(dados.carga)
+    : formatarDataRomaneio_(dados.data || new Date()).replace(/\//g, '-');
   const hora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HHmmss');
-  return `Romaneio ${transp} ${data} ${hora}`.replace(/\s+/g, ' ');
+  return `Romaneio ${transp} ${referencia} ${hora}`.replace(/\s+/g, ' ');
 }
 
 function formatarDataRomaneio_(valor) {
@@ -417,7 +422,6 @@ function criarModeloRomaneio_() {
   ajustarTabelaDoModelo_(corpo, pagina.largura - 2 * m);
 
   reduzirParagrafosVazios_(corpo);
-  inserirLogoNoModelo_(corpo);
   doc.saveAndClose();
   return DriveApp.getFileById(id);
 }
@@ -472,26 +476,34 @@ function ajustarTabelaDoModelo_(corpo, larguraUtil) {
   });
 }
 
-function inserirLogoNoModelo_(corpo) {
+/**
+ * Troca {{LOGO}} pela imagem. Sem imagem, escreve "KaBuM!" e devolve o motivo (aviso para o Web App).
+ * Se o modelo já tiver uma imagem colocada à mão (sem o marcador), não mexe.
+ */
+function inserirLogo_(corpo) {
   const achado = corpo.findText('\\{\\{LOGO\\}\\}');
-  if (!achado) return;
-  let blob;
-  try {
-    blob = obterLogoRomaneio_();
-  } catch (e) {
-    console.warn('Logótipo indisponível, fica o texto KaBuM!: ' + e.message);
-    substituirMarcador_(corpo, 'LOGO', 'KaBuM!');
-    return;
-  }
+  if (!achado) return null;
+
   let par = achado.getElement();
   while (par.getType() !== DocumentApp.ElementType.PARAGRAPH) par = par.getParent();
   par = par.asParagraph();
-  par.setText('');
-  const img = par.appendInlineImage(blob);
-  const altura = ROMANEIO_CONFIG.ALTURA_LOGO_PT;
-  const w = img.getWidth(), h = img.getHeight();
-  if (w && h) img.setHeight(altura).setWidth(Math.round(w * altura / h));
-  par.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+
+  let motivo;
+  try {
+    const logo = obterLogoRomaneio_();
+    par.setText('');
+    const img = par.appendInlineImage(logo);
+    const altura = ROMANEIO_CONFIG.ALTURA_LOGO_PT;
+    const w = img.getWidth(), h = img.getHeight();
+    if (w && h) img.setHeight(altura).setWidth(Math.round(w * altura / h));
+    par.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    return null;
+  } catch (e) {
+    motivo = e && e.message || String(e);
+  }
+  console.warn('Logótipo indisponível, fica o texto KaBuM!: ' + motivo);
+  par.setText('KaBuM!');
+  return 'Logótipo não inserido: ' + motivo;
 }
 
 /** Envia o HTML ao Drive pedindo conversão para Google Docs. Devolve o ID do documento. */
@@ -554,90 +566,143 @@ function obterPastaRomaneios_() {
   return pasta;
 }
 
-/** O ID pode ser do ficheiro da imagem ou da pasta onde ela está (usa a primeira imagem). */
+const ROMANEIO_MIME_PASTA = 'application/vnd.google-apps.folder';
+const ROMANEIO_MIME_ATALHO = 'application/vnd.google-apps.shortcut';
+// Formatos que o Google Docs aceita numa imagem; os outros são convertidos para PNG
+const ROMANEIO_MIMES_DOCS = ['image/png', 'image/jpeg', 'image/gif'];
+
+/**
+ * O ID pode ser do ficheiro da imagem ou da pasta onde ela está. Aceita atalhos do Drive e
+ * converte para PNG o que o Docs não aceita diretamente (WebP, BMP, Google Desenhos, etc.).
+ * Em caso de falha, a mensagem diz o que foi encontrado, para se perceber o motivo.
+ */
 function obterLogoRomaneio_() {
   const id = ROMANEIO_CONFIG.LOGO_ID;
   if (!id) throw new Error('LOGO_ID não configurado.');
 
-  let erroFicheiro;
-  try {
-    const arquivo = DriveApp.getFileById(id);
-    if (/^image\//.test(arquivo.getMimeType())) return arquivo.getBlob();
-    erroFicheiro = new Error('O ficheiro ' + arquivo.getName() + ' não é uma imagem (' + arquivo.getMimeType() + ').');
-  } catch (e) {
-    erroFicheiro = e;
+  let arquivo = null;
+  try { arquivo = DriveApp.getFileById(id); } catch (e) { /* pode ser uma pasta */ }
+  if (arquivo && arquivo.getMimeType() !== ROMANEIO_MIME_PASTA) {
+    return imagemDoArquivo_(arquivo);
   }
 
   let pasta;
   try {
     pasta = DriveApp.getFolderById(id);
   } catch (e) {
-    throw new Error('Não foi possível abrir o logótipo (' + id + '): ' + (erroFicheiro && erroFicheiro.message || e.message));
+    throw new Error('o ID ' + id + ' não abre como ficheiro nem como pasta para a conta que publica o Web App (' + e.message + ').');
   }
+  const vistos = [];
+  const erros = [];
   const arquivos = pasta.getFiles();
   while (arquivos.hasNext()) {
     const f = arquivos.next();
-    if (/^image\//.test(f.getMimeType())) return f.getBlob();
+    vistos.push(f.getName() + ' (' + f.getMimeType() + ')');
+    try {
+      return imagemDoArquivo_(f);
+    } catch (e) {
+      erros.push(e.message);
+    }
   }
-  throw new Error('A pasta "' + pasta.getName() + '" não tem nenhuma imagem para o logótipo.');
+  if (!vistos.length) throw new Error('a pasta "' + pasta.getName() + '" está vazia ou os ficheiros não estão partilhados com a conta que publica o Web App.');
+  throw new Error('nenhum ficheiro da pasta "' + pasta.getName() + '" serviu como imagem: ' + erros.join(' | '));
+}
+
+function imagemDoArquivo_(arquivo) {
+  let f = arquivo;
+  let mime = f.getMimeType();
+  if (mime === ROMANEIO_MIME_ATALHO) {
+    f = DriveApp.getFileById(f.getTargetId());
+    mime = f.getMimeType();
+  }
+  const nome = f.getName() + ' (' + mime + ')';
+  if (ROMANEIO_MIMES_DOCS.indexOf(mime) >= 0) return f.getBlob();
+  try {
+    const png = f.getAs('image/png');
+    if (png && png.getBytes().length) return png;
+  } catch (e) {
+    throw new Error(nome + ' não pode ser usado como imagem: ' + e.message);
+  }
+  throw new Error(nome + ' não pode ser usado como imagem.');
 }
 
 // ==========================================
-// DADOS DE TESTE E ERROS
+// DADOS DA CARGA
 // ==========================================
 
-function montarDadosRomaneioTeste_(opcoes) {
-  const secoes = [
-    { titulo: 'Notas não encontradas na carga', linhas: [
-      { nf: '28660325', itens: [{ qtd: 1, produto: 'Memória RAM Rise Mode Z, 8GB, 3200MHz, DDR4' }] }
-    ] },
-    { titulo: 'Notas aceitas parcialmente', mesmaLinha: false, linhas: [
-      { nf: '28691026', itens: [{ qtd: 1, produto: 'Processador AMD Ryzen 7 5700X' }],
-        obs: 'Produto veio fora da sua embalagem original, sendo assim será feito a recusa parcial da NF' }
-    ] },
-    { titulo: 'Notas recusadas por avaria', linhas: [
-      { nf: '28655181', itens: [{ qtd: 1, produto: 'Gabinete Gamer Kalkan Skye' }] },
-      { nf: '28609612', itens: [{ qtd: 1, produto: 'Monitor Profissional ASUS ProArt 27' }] },
-      { nf: '28602432', itens: [{ qtd: 1, produto: 'Monitor Gamer Curvo Rise Mode Prime 32' }] },
-      { nf: '28613464', itens: [{ qtd: 1, produto: 'Mouse Gamer Sem Fio Attack Shark X8SE' }] },
-      { nf: '28606140', itens: [{ qtd: 1, produto: 'Teclado Mecânico Gamer Husky Anchorage Full Size' }] }
-    ] },
-    { titulo: 'Notas recusadas com embalagem vazia', linhas: [
-      { nf: '28525085', itens: [{ qtd: 1, produto: 'Processador AMD Ryzen 7 5800X3D' }] }
-    ] },
-    { titulo: 'Notas recusadas por prazo indenizatório', linhas: [
-      { nf: '28483831', itens: [{ qtd: 1, produto: 'MacBook Pro de 14' }] },
-      { nf: '28569952', itens: [{ qtd: 1, produto: 'Placa de Vídeo MSI RTX 5060 Shadow 2X OC NVIDIA GeForce' }],
-        obs: '(Foi enviado um Headset improcedente no local da Placa de vídeo)' }
-    ] },
-    { titulo: 'Notas recusadas não pertencentes ao KaBuM', linhas: [] },
-    { titulo: 'Notas recusadas por produtos improcedentes', linhas: [] },
-    { titulo: 'Nota recusada fora do romaneio', linhas: [] }
-  ];
+/**
+ * Lê a aba da carga e monta o romaneio.
+ * Regras provisórias, até às regras definitivas de cada secção:
+ *  - Listagem: pedidos únicos ("Número do Pedido Faturado") e a data do nome da aba;
+ *  - Volumes: etiquetas da carga ("Mercadoria Código");
+ *  - Notas recusadas por avaria: volumes com status "Recusado Manualmente" (modo recusa);
+ *  - restantes secções: saem com o título e sem NFs.
+ */
+function montarDadosRomaneioCarga_(nomeAba, dataISO) {
+  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nomeAba);
+  if (!aba) throw new Error('A carga "' + nomeAba + '" não existe na planilha.');
 
-  if (opcoes.textoLongo) {
-    const produtos = ['Placa de Vídeo Gigabyte GeForce RTX 5070 Ti Gaming OC 16GB GDDR7', 'SSD Kingston NV3 2TB M.2 NVMe',
-      'Monitor Gamer LG UltraGear 27" QHD 180Hz', 'Cadeira Gamer DT3 Sports Rhino', 'Fonte Corsair RM850e 850W 80 Plus Gold'];
-    const extra = [];
-    for (let i = 0; i < 70; i++) {
-      extra.push({
-        nf: String(28700000 + i * 137),
-        itens: [{ qtd: 1 + (i % 3), produto: produtos[i % produtos.length] }].concat(i % 4 === 0 ? [{ qtd: 1, produto: produtos[(i + 2) % produtos.length] }] : []),
-        obs: i % 5 === 0 ? '(Caixa com sinais de violação na lateral, lacre rompido e produto sem os acessórios originais; volume separado para análise)' : ''
-      });
-    }
-    secoes[2].linhas = secoes[2].linhas.concat(extra);
+  const ultimaLinha = aba.getLastRow();
+  const ultimaColuna = aba.getLastColumn();
+  if (ultimaLinha < 2 || !ultimaColuna) throw new Error('A carga "' + nomeAba + '" está vazia.');
+
+  const valores = aba.getRange(1, 1, ultimaLinha, ultimaColuna).getDisplayValues();
+  const cab = valores[0].map(c => String(c).trim().toLowerCase());
+  const coluna = (...nomes) => { for (const n of nomes) { const i = cab.indexOf(n); if (i >= 0) return i; } return -1; };
+  const iNF = coluna('nota fiscal', 'nf');
+  const iPed = coluna('número do pedido faturado', 'numero do pedido faturado');
+  const iMerc = coluna('mercadoria código', 'mercadoria codigo');
+  const iProd = coluna('produto nome', 'produto', 'descrição', 'descricao');
+  const iStatus = coluna('status conferência', 'status conferencia');
+  if (iMerc < 0 || iPed < 0) {
+    throw new Error('A carga "' + nomeAba + '" não tem as colunas "Mercadoria Código" e "Número do Pedido Faturado".');
   }
 
+  const pedidos = new Set();
+  let volumes = 0;
+  const avarias = [];
+  valores.slice(1).forEach(l => {
+    const merc = String(l[iMerc]).trim();
+    const ped = String(l[iPed]).trim();
+    if (!merc && !ped) return;
+    if (ped) pedidos.add(ped);
+    if (merc) volumes++;
+    const status = iStatus >= 0 ? String(l[iStatus]).trim() : '';
+    if (status === 'Recusado Manualmente') {
+      avarias.push({ nf: iNF >= 0 ? String(l[iNF]).trim() : '', produto: iProd >= 0 ? String(l[iProd]).trim() : merc });
+    }
+  });
+
+  const porSecao = { avaria: agruparPorNF_(avarias) };
+  const secoes = ROMANEIO_CONFIG.SECOES.map(s => ({
+    titulo: s.titulo, mesmaLinha: s.mesmaLinha, linhas: porSecao[s.chave] || []
+  }));
+
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const dataCarga = /^(\d{2})-(\d{2})-(\d{4})/.exec(nomeAba);
   return {
-    transportadora: opcoes.transportadora || 'GFL',
-    data: opcoes.dataISO || hoje,
-    listagem: { pedidos: 175, data: opcoes.dataListagemISO || opcoes.dataISO || hoje },
+    carga: nomeAba,
+    transportadora: ROMANEIO_CONFIG.TRANSPORTADORA,
+    data: dataISO || hoje,
+    listagem: { pedidos: pedidos.size, data: dataCarga ? `${dataCarga[1]}/${dataCarga[2]}/${dataCarga[3]}` : nomeAba },
     secoes,
-    volumes: 175,
-    estados: opcoes.marcarEstados ? { perfeito: true, amassado: true, rasgado: true } : {}
+    volumes,
+    resumo: { pedidos: pedidos.size, volumes, avarias: avarias.length }
   };
+}
+
+/** [{nf, produto}] -> [{nf, itens:[{qtd, produto}]}], pela ordem em que as NFs aparecem. */
+function agruparPorNF_(registos) {
+  const mapa = new Map();
+  registos.forEach(r => {
+    const chave = r.nf || '(sem NF)';
+    if (!mapa.has(chave)) mapa.set(chave, new Map());
+    const produtos = mapa.get(chave);
+    produtos.set(r.produto, (produtos.get(r.produto) || 0) + 1);
+  });
+  return Array.from(mapa.entries()).map(([nf, produtos]) => ({
+    nf, itens: Array.from(produtos.entries()).map(([produto, qtd]) => ({ qtd, produto }))
+  }));
 }
 
 function explicarErroRomaneio_(e) {

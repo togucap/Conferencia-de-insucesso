@@ -55,9 +55,9 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m5.6 5.6 12.8 12.8"></path></svg>
           <span class="nav-text">Bloquear Lotes</span>
         </button>
-        <button type="button" id="btnAbrirModalRomaneio" class="sidebar-tool" title="Gerar um romaneio de devolução de teste em PDF">
+        <button type="button" id="btnAbrirModalRomaneio" class="sidebar-tool" title="Gerar o romaneio de devolução (PDF) de uma carga">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"></path><path d="M14 3v5h5M9 13h6M9 17h6"></path></svg>
-          <span class="nav-text">Romaneio (teste)</span>
+          <span class="nav-text">Romaneio</span>
         </button>
       </div>
 
@@ -613,30 +613,31 @@
       </div>
     </div>
 
-    <!-- MODAL: Romaneio de devolução (teste do motor de PDF) -->
+    <!-- MODAL: Romaneio de devolução (PDF por carga) -->
     <div id="modalRomaneio" class="modal-overlay modal-z3" style="display: none;">
       <div class="modal-content card-container modal-formulario">
         <div class="modal-header">
-          <h2 class="card-title">Romaneio de devolução (teste)</h2>
+          <h2 class="card-title">Romaneio de devolução</h2>
           <button type="button" id="btnFecharModalRomaneio" class="btn-close" aria-label="Fechar">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="dialogo-texto texto-esquerda">
-            Gera um PDF com o conteúdo do romaneio de exemplo, para validar o visual.
-            As regras reais de cada secção entram depois.
-          </p>
+          <div class="input-group campo-formulario">
+            <label for="cargaRomaneio">Carga</label>
+            <select id="cargaRomaneio">
+              <option value="">A carregar cargas…</option>
+            </select>
+          </div>
           <div class="romaneio-campos">
             <div class="input-group campo-formulario">
               <label for="transportadoraRomaneio">Transportadora</label>
-              <input type="text" id="transportadoraRomaneio" value="GFL" maxlength="60" autocomplete="off">
+              <input type="text" id="transportadoraRomaneio" value="GFL" readonly aria-readonly="true" class="campo-travado" title="Transportadora fixa">
             </div>
             <div class="input-group campo-formulario">
               <label for="dataRomaneio">Data do romaneio</label>
               <input type="date" id="dataRomaneio">
             </div>
           </div>
-          <label class="romaneio-opcao"><input type="checkbox" id="longoRomaneio"> Incluir texto longo (70 NFs extra, para testar a 2.ª página)</label>
-          <label class="romaneio-opcao"><input type="checkbox" id="estadosRomaneio"> Marcar as caixas de estado do volume</label>
+          <p class="ajuda-texto romaneio-nota">As caixas de estado do volume saem todas marcadas.</p>
 
           <div id="msgRomaneio" class="msg-progresso" style="display: none;"></div>
           <div id="resultadoRomaneio" class="romaneio-resultado" style="display: none;"></div>
