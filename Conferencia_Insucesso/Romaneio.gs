@@ -44,10 +44,11 @@ const ROMANEIO_CONFIG = {
     ['amassado', 'Volume amassado'],
     ['rasgado', 'Volume rasgado']
   ],
-  // Secções da área central, pela ordem do romaneio. mesmaLinha:false = NFs a partir da linha seguinte
+  // Secções da área central, pela ordem do romaneio (só aparecem as que a carga tiver).
+  // mesmaLinha:false = NFs a partir da linha seguinte
   SECOES: [
     { chave: 'nao_encontradas', titulo: 'Notas não encontradas na carga' },
-    { chave: 'parciais', titulo: 'Notas aceitas parcialmente', mesmaLinha: false },
+    { chave: 'parciais', titulo: 'Notas aceitas parcialmente' },
     { chave: 'avaria', titulo: 'Notas recusadas por avaria' },
     { chave: 'embalagem_vazia', titulo: 'Notas recusadas com embalagem vazia' },
     { chave: 'prazo', titulo: 'Notas recusadas por prazo indenizatório' },
@@ -244,8 +245,12 @@ function linhasConteudoRomaneio_(dados) {
     linhas.push(`Listagem ${dados.listagem.pedidos} pedidos - ${formatarDataRomaneio_(dados.listagem.data)} :`);
     linhas.push('');
   }
-  (dados.secoes || []).forEach((secao, s) => {
-    const itens = (secao.linhas || []).map(formatarItemRomaneio_).filter(t => t);
+  // Só entram as categorias que a carga tem (secções sem NFs não aparecem),
+  // salvo dados.mostrarVazias = true
+  const secoes = (dados.secoes || [])
+    .map(secao => ({ secao, itens: (secao.linhas || []).map(formatarItemRomaneio_).filter(t => t) }))
+    .filter(x => x.itens.length || dados.mostrarVazias);
+  secoes.forEach(({ secao, itens }, s) => {
     const titulo = String(secao.titulo || '').trim().replace(/:?$/, ':');
     if (secao.mesmaLinha === false || !itens.length) {
       linhas.push(titulo);
@@ -254,19 +259,25 @@ function linhasConteudoRomaneio_(dados) {
       linhas.push(titulo + ' ' + itens[0]);
       itens.slice(1).forEach(t => linhas.push(t));
     }
-    if (s < dados.secoes.length - 1) linhas.push('');
+    if (s < secoes.length - 1) linhas.push('');
   });
+  // Sem nenhuma categoria, não fica uma linha em branco solta depois da Listagem
+  while (linhas.length && linhas[linhas.length - 1] === '') linhas.pop();
   return linhas;
 }
 
-/** "NF 123 (1 x Produto; 2 x Outro) observação" a partir de um objeto, ou o texto tal como veio. */
+/**
+ * Padrão de escrita do romaneio: "NF {{NF}} ({{contagem de itens}}, {{nome do produto}})".
+ * Vários produtos na mesma NF: "NF 123 (2, Monitor; 1, Cabo)". Observação opcional no fim.
+ * Um texto (string) entra tal como veio.
+ */
 function formatarItemRomaneio_(item) {
   if (item === null || item === undefined) return '';
   if (typeof item !== 'object') return String(item).trim();
 
   const produtos = (item.itens || []).map(i => {
     const qtd = i.qtd === undefined || i.qtd === null || i.qtd === '' ? 1 : i.qtd;
-    return `${qtd} x ${String(i.produto || '').trim()}`;
+    return `${qtd}, ${String(i.produto || '').trim()}`;
   }).filter(t => t.trim());
   let texto = 'NF ' + String(item.nf || '').trim();
   if (produtos.length) texto += ' (' + produtos.join('; ') + ')';
@@ -672,7 +683,7 @@ function imagemDoArquivo_(arquivo) {
  *  - Listagem: pedidos da carga e a data do nome da aba; Volumes: etiquetas da carga;
  *  - Notas não encontradas na carga: pedidos em falta total (todos os volumes);
  *  - Notas aceitas parcialmente: pedidos parciais, só os volumes em falta;
- *  - Notas recusadas por prazo indenizatório: pedidos bloqueados, só os volumes bipados;
+ *  - Notas recusadas por prazo indenizatório: volumes bipados com status "Bloqueado";
  *  - Notas recusadas por avaria: PROVISÓRIO, volumes recusados manualmente (o motivo de cada
  *    recusa será escolhido num ecrã próprio ao gerar o romaneio);
  *  - Fora da malha / outras cargas: ainda não entram (passam por validação noutro fluxo).
@@ -686,7 +697,8 @@ function montarDadosRomaneioCarga_(nomeAba, dataISO) {
   const porSecao = {
     nao_encontradas: agruparPorNF_(registos(it => it.situacaoPedido === P.FALTA_TOTAL)),
     parciais: agruparPorNF_(registos(it => it.situacaoPedido === P.PARCIAL && it.situacao === S.FALTA)),
-    prazo: agruparPorNF_(registos(it => it.situacao === S.BLOQ_RECUSAR)),
+    // Prazo expirado: só volumes que passaram na bipagem e ficaram com o status "Bloqueado"
+    prazo: agruparPorNF_(registos(it => it.situacao === S.BLOQ_RECUSAR && it.status === 'Bloqueado')),
     avaria: agruparPorNF_(registos(it => it.situacao === S.RECUSADO))
   };
   const secoes = ROMANEIO_CONFIG.SECOES.map(s => ({
