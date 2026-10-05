@@ -302,15 +302,14 @@ function linhasConteudoRomaneio_(dados) {
   const secoes = (dados.secoes || [])
     .map(secao => ({ secao, itens: (secao.linhas || []).map(formatarItemRomaneio_).filter(t => t) }))
     .filter(x => x.itens.length || dados.mostrarVazias);
+  // Romaneio enxuto: cada categoria é um único parágrafo, com as NFs separadas por ", "
+  // (a quebra de linha fica a cargo do documento). Uma linha em branco entre categorias.
   secoes.forEach(({ secao, itens }, s) => {
     const titulo = String(secao.titulo || '').trim().replace(/:?$/, ':');
-    if (secao.mesmaLinha === false || !itens.length) {
-      linhas.push(titulo);
-      itens.forEach(t => linhas.push(t));
-    } else {
-      linhas.push(titulo + ' ' + itens[0]);
-      itens.slice(1).forEach(t => linhas.push(t));
-    }
+    const nfs = itens.join(', ');
+    if (!nfs) linhas.push(titulo);
+    else if (secao.mesmaLinha === false) { linhas.push(titulo); linhas.push(nfs); }
+    else linhas.push(titulo + ' ' + nfs);
     if (s < secoes.length - 1) linhas.push('');
   });
   // Sem nenhuma categoria, não fica uma linha em branco solta depois da Listagem
