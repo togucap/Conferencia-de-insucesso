@@ -56,6 +56,14 @@ const ROMANEIO_CONFIG = {
     { chave: 'improcedentes', titulo: 'Notas recusadas por produtos improcedentes' },
     { chave: 'fora_romaneio', titulo: 'Nota recusada fora do romaneio' }
   ],
+  // Motivos de recusa manual escolhidos por NF ao gerar o romaneio (chave = secção)
+  MOTIVOS: [
+    ['avaria', 'Avaria'],
+    ['improcedentes', 'Improcedente'],
+    ['embalagem_vazia', 'Embalagem vazia']
+  ],
+  // Aba oculta com os motivos por NF e as notas "não pertencentes ao KaBuM" escritas à mão
+  NOME_ABA_SELECOES: 'Romaneio_Selecoes',
   PROP_MODELO: 'ROMANEIO_MODELO_ID',
   PROP_VERSAO: 'ROMANEIO_MODELO_VERSAO',
   PROP_PASTA: 'ROMANEIO_PASTA_ID'
@@ -71,15 +79,59 @@ const ROMANEIO_PAGINAS = {
 // ==========================================
 
 /**
+ * Dados do ecrã de seleção prévia: NFs recusadas manualmente (com o motivo já gravado, se houver),
+ * notas "não pertencentes ao KaBuM" já escritas e o que entra automaticamente no romaneio.
+ */
+function obterSelecaoRomaneio(nomeAba) {
+  if (!nomeAba) throw new Error('Selecione a carga.');
+  const j = obterJulgamentoCarga(nomeAba);
+  const salvas = lerSelecoesRomaneio_(nomeAba);
+  const recusados = nfsRecusadasManualmente_(j).map(r => {
+    const s = salvas.motivos[r.nf] || {};
+    return {
+      nf: r.nf, pedido: r.pedido, qtd: r.qtd, produtoBase: r.produtoBase,
+      etiquetas: r.itens.map(i => i.etiqueta),
+      motivo: s.motivo || '',
+      produto: s.produto || r.produtoBase
+    };
+  });
+  const automaticas = montarDadosRomaneioCarga_(nomeAba, null, { julgamento: j, semRecusados: true, selecoes: [], naoKabum: [] });
+  return {
+    carga: nomeAba,
+    motivos: ROMANEIO_CONFIG.MOTIVOS.map(([valor, rotulo]) => ({ valor, rotulo })),
+    recusados,
+    naoKabum: salvas.naoKabum,
+    automaticas: automaticas.secoes.filter(s => s.linhas.length).map(s => ({ titulo: s.titulo, nfs: s.linhas.length }))
+  };
+}
+
+/** Texto da área central com as escolhas atuais (sem gerar o PDF nem gravar nada). */
+function previaRomaneioCarga(opcoes) {
+  opcoes = opcoes || {};
+  if (!opcoes.carga) throw new Error('Selecione a carga.');
+  const dados = montarDadosRomaneioCarga_(opcoes.carga, opcoes.dataISO, {
+    selecoes: opcoes.selecoes, naoKabum: opcoes.naoKabum, permitirSemMotivo: true
+  });
+  return { linhas: linhasConteudoRomaneio_(dados), volumes: dados.volumes, pendentes: dados.semMotivo };
+}
+
+/**
  * Gera o romaneio de uma carga e devolve o link do PDF.
- * @param {Object} opcoes {carga: nome da aba, dataISO: data do cabeçalho (yyyy-MM-dd)}
+ * @param {Object} opcoes {carga, dataISO, selecoes:[{nf, motivo, produto}], naoKabum:[{nf, qtd, produto}]}
+ *   Sem "selecoes"/"naoKabum" usa o que está gravado em Romaneio_Selecoes.
  */
 function gerarRomaneioCarga(opcoes) {
   opcoes = opcoes || {};
   const inicio = Date.now();
   if (!opcoes.carga) throw new Error('Selecione a carga.');
 
-  const dados = montarDadosRomaneioCarga_(opcoes.carga, opcoes.dataISO);
+  const dados = montarDadosRomaneioCarga_(opcoes.carga, opcoes.dataISO, {
+    selecoes: opcoes.selecoes, naoKabum: opcoes.naoKabum
+  });
+  if (opcoes.selecoes || opcoes.naoKabum) {
+    gravarSelecoesRomaneio_(opcoes.carga, dados.selecoesUsadas, dados.naoKabumUsadas);
+  }
+
   let pdf;
   try {
     pdf = gerarRomaneioPdf_(dados);
@@ -679,17 +731,22 @@ function imagemDoArquivo_(arquivo) {
 // ==========================================
 
 /**
- * Monta o romaneio a partir do motor de julgamento (Julgamento.gs), o mesmo do pop-up Detalhes:
- *  - Listagem: pedidos da carga e a data do nome da aba; Volumes: etiquetas da carga;
+ * Monta o romaneio a partir do motor de julgamento (Julgamento.gs) e das escolhas do ecrã de seleção:
  *  - Notas não encontradas na carga: pedidos em falta total (todos os volumes);
  *  - Notas aceitas parcialmente: pedidos parciais, só os volumes em falta;
  *  - Notas recusadas por prazo indenizatório: volumes bipados com status "Bloqueado";
- *  - Notas recusadas por avaria: PROVISÓRIO, volumes recusados manualmente (o motivo de cada
- *    recusa será escolhido num ecrã próprio ao gerar o romaneio);
+ *  - Avaria / Improcedente / Embalagem vazia: NFs recusadas manualmente, pelo motivo escolhido
+ *    por NF (na embalagem vazia o nome do produto pode ser corrigido à mão);
+ *  - Não pertencentes ao KaBuM: NF, quantidade e produto escritos à mão;
  *  - Fora da malha / outras cargas: ainda não entram (passam por validação noutro fluxo).
+ * Volumes = soma dos volumes listados no romaneio.
+ *
+ * @param {Object} opcoes {julgamento, selecoes, naoKabum, permitirSemMotivo, semRecusados}
+ *   sem selecoes/naoKabum usa o que está gravado na aba Romaneio_Selecoes.
  */
-function montarDadosRomaneioCarga_(nomeAba, dataISO) {
-  const j = obterJulgamentoCarga(nomeAba);
+function montarDadosRomaneioCarga_(nomeAba, dataISO, opcoes) {
+  opcoes = opcoes || {};
+  const j = opcoes.julgamento || obterJulgamentoCarga(nomeAba);
   if (!j.itens.length) throw new Error('A carga "' + nomeAba + '" está vazia.');
   const S = j.SIT, P = j.PED;
 
@@ -698,12 +755,50 @@ function montarDadosRomaneioCarga_(nomeAba, dataISO) {
     nao_encontradas: agruparPorNF_(registos(it => it.situacaoPedido === P.FALTA_TOTAL)),
     parciais: agruparPorNF_(registos(it => it.situacaoPedido === P.PARCIAL && it.situacao === S.FALTA)),
     // Prazo expirado: só volumes que passaram na bipagem e ficaram com o status "Bloqueado"
-    prazo: agruparPorNF_(registos(it => it.situacao === S.BLOQ_RECUSAR && it.status === 'Bloqueado')),
-    avaria: agruparPorNF_(registos(it => it.situacao === S.RECUSADO))
+    prazo: agruparPorNF_(registos(it => it.situacao === S.BLOQ_RECUSAR && it.status === 'Bloqueado'))
   };
+
+  // ---- recusados manualmente: motivo por NF ----
+  const salvas = (opcoes.selecoes && opcoes.naoKabum) ? null : lerSelecoesRomaneio_(nomeAba);
+  const mapaSel = {};
+  (opcoes.selecoes || []).forEach(s => { if (s && s.nf) mapaSel[String(s.nf).trim()] = s; });
+  const motivosValidos = ROMANEIO_CONFIG.MOTIVOS.map(m => m[0]);
+  const selecoesUsadas = [];
+  const semMotivo = [];
+  if (!opcoes.semRecusados) {
+    nfsRecusadasManualmente_(j).forEach(r => {
+      const escolha = opcoes.selecoes ? (mapaSel[r.nf] || {}) : (salvas.motivos[r.nf] || {});
+      const motivo = String(escolha.motivo || '').trim();
+      if (motivosValidos.indexOf(motivo) < 0) { semMotivo.push(r.nf); return; }
+      const produtoManual = String(escolha.produto || '').trim();
+      const linha = (motivo === 'embalagem_vazia' && produtoManual)
+        ? { nf: r.nf, itens: [{ qtd: r.qtd, produto: produtoManual }] }
+        : agruparPorNF_(r.itens.map(i => ({ nf: r.nf, produto: i.produto || i.etiqueta })))[0];
+      (porSecao[motivo] = porSecao[motivo] || []).push(linha);
+      selecoesUsadas.push({ nf: r.nf, motivo, produto: motivo === 'embalagem_vazia' ? (produtoManual || r.produtoBase) : '' });
+    });
+    if (semMotivo.length && !opcoes.permitirSemMotivo) {
+      throw new Error('Escolha o motivo da recusa para a(s) NF(s): ' + semMotivo.join(', ') + '.');
+    }
+  }
+
+  // ---- não pertencentes ao KaBuM (escritas à mão) ----
+  const naoKabumUsadas = [];
+  (opcoes.naoKabum || (salvas ? salvas.naoKabum : [])).forEach(n => {
+    const nf = String(n && n.nf || '').trim();
+    const produto = String(n && n.produto || '').trim();
+    const qtd = Math.max(1, parseInt(n && n.qtd, 10) || 1);
+    if (!nf && !produto) return;
+    if (!nf || !produto) throw new Error('Nas notas não pertencentes ao KaBuM, preencha a NF e o produto.');
+    naoKabumUsadas.push({ nf, qtd, produto });
+  });
+  porSecao.nao_kabum = naoKabumUsadas.map(n => ({ nf: n.nf, itens: [{ qtd: n.qtd, produto: n.produto }] }));
+
   const secoes = ROMANEIO_CONFIG.SECOES.map(s => ({
     titulo: s.titulo, mesmaLinha: s.mesmaLinha, linhas: porSecao[s.chave] || []
   }));
+  const volumes = secoes.reduce((total, s) => total + s.linhas.reduce((t, l) =>
+    t + (l.itens || []).reduce((q, i) => q + (Number(i.qtd) || 0), 0), 0), 0);
 
   const cp = j.contagens.pedidos, ci = j.contagens.itens;
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -714,16 +809,100 @@ function montarDadosRomaneioCarga_(nomeAba, dataISO) {
     data: dataISO || hoje,
     listagem: { pedidos: j.pedidos.length, data: dataCarga ? `${dataCarga[1]}/${dataCarga[2]}/${dataCarga[3]}` : nomeAba },
     secoes,
-    volumes: j.itens.length,
+    volumes,
+    semMotivo,
+    selecoesUsadas,
+    naoKabumUsadas,
     resumo: {
       pedidos: j.pedidos.length,
-      volumes: j.itens.length,
+      volumes,
       faltaTotal: cp[P.FALTA_TOTAL] || 0,
       parciais: cp[P.PARCIAL] || 0,
       bloqueados: cp[P.BLOQ_RECUSAR] || 0,
       recusados: ci[S.RECUSADO] || 0
     }
   };
+}
+
+/** Volumes recusados manualmente, agrupados por NF (pela ordem da carga). */
+function nfsRecusadasManualmente_(j) {
+  const mapa = {};
+  const lista = [];
+  j.itens.filter(it => it.situacao === j.SIT.RECUSADO).forEach(it => {
+    const nf = it.nf || ('Pedido ' + it.pedido);
+    if (!mapa[nf]) { mapa[nf] = { nf, pedido: it.pedido, itens: [] }; lista.push(mapa[nf]); }
+    mapa[nf].itens.push(it);
+  });
+  lista.forEach(r => {
+    r.qtd = r.itens.length;
+    const nomes = [];
+    r.itens.forEach(i => { const n = i.produto || i.etiqueta; if (nomes.indexOf(n) < 0) nomes.push(n); });
+    r.produtoBase = nomes.join('; ');
+  });
+  return lista;
+}
+
+// ==========================================
+// ESCOLHAS GRAVADAS (aba oculta Romaneio_Selecoes)
+// ==========================================
+// Colunas: Carga | Tipo | NF | Motivo | Quantidade | Produto | Atualizado em | Por
+// Tipo "RECUSA" = motivo escolhido para uma NF recusada manualmente; "NAO_KABUM" = nota escrita à mão.
+
+const ROMANEIO_CAB_SELECOES = ['Carga', 'Tipo', 'NF', 'Motivo', 'Quantidade', 'Produto', 'Atualizado em', 'Por'];
+
+function abaSelecoesRomaneio_(criar) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let aba = ss.getSheetByName(ROMANEIO_CONFIG.NOME_ABA_SELECOES);
+  if (!aba && criar) {
+    aba = ss.insertSheet(ROMANEIO_CONFIG.NOME_ABA_SELECOES);
+    aba.getRange(1, 1, 1, ROMANEIO_CAB_SELECOES.length).setValues([ROMANEIO_CAB_SELECOES]).setFontWeight('bold');
+    aba.setFrozenRows(1);
+    try { aba.hideSheet(); } catch (e) { /* fica visível */ }
+  }
+  return aba;
+}
+
+function lerSelecoesRomaneio_(nomeAba) {
+  const resultado = { motivos: {}, naoKabum: [] };
+  const aba = abaSelecoesRomaneio_(false);
+  if (!aba || aba.getLastRow() < 2) return resultado;
+  aba.getRange(2, 1, aba.getLastRow() - 1, ROMANEIO_CAB_SELECOES.length).getDisplayValues().forEach(l => {
+    if (String(l[0]).trim() !== nomeAba) return;
+    const tipo = String(l[1]).trim();
+    if (tipo === 'RECUSA') {
+      resultado.motivos[String(l[2]).trim()] = { motivo: String(l[3]).trim(), produto: String(l[5]).trim() };
+    } else if (tipo === 'NAO_KABUM') {
+      resultado.naoKabum.push({ nf: String(l[2]).trim(), qtd: parseInt(l[4], 10) || 1, produto: String(l[5]).trim() });
+    }
+  });
+  return resultado;
+}
+
+/** Substitui as escolhas gravadas desta carga pelas atuais. */
+function gravarSelecoesRomaneio_(nomeAba, selecoes, naoKabum) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const aba = abaSelecoesRomaneio_(true);
+    const n = ROMANEIO_CAB_SELECOES.length;
+    const outras = aba.getLastRow() > 1
+      ? aba.getRange(2, 1, aba.getLastRow() - 1, n).getValues().filter(l => String(l[0]).trim() !== nomeAba)
+      : [];
+    const quando = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    let quem = '';
+    try { quem = Session.getActiveUser().getEmail(); } catch (e) { /* sem e-mail */ }
+    const novas = (selecoes || []).map(s => [nomeAba, 'RECUSA', s.nf, s.motivo, '', s.produto || '', quando, quem])
+      .concat((naoKabum || []).map(k => [nomeAba, 'NAO_KABUM', k.nf, 'nao_kabum', k.qtd, k.produto, quando, quem]));
+    const todas = outras.concat(novas);
+    if (aba.getLastRow() > 1) aba.getRange(2, 1, aba.getLastRow() - 1, n).clearContent();
+    if (todas.length) {
+      const intervalo = aba.getRange(2, 1, todas.length, n);
+      intervalo.setNumberFormat('@');
+      intervalo.setValues(todas.map(l => l.map(v => String(v))));
+    }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** [{nf, produto}] -> [{nf, itens:[{qtd, produto}]}], pela ordem em que as NFs aparecem. */

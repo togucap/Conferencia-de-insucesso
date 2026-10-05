@@ -1,7 +1,8 @@
 <script>
   // ============================================================================
   // SCRIPT: ROMANEIO DE DEVOLUÇÃO (PDF por carga)
-  // Responsabilidade: escolher a carga, pedir o PDF ao backend e mostrar o link
+  // Responsabilidade: escolher a carga, fazer a seleção prévia (motivo por NF e notas
+  // não pertencentes ao KaBuM), pré-visualizar e pedir o PDF ao backend.
   // ============================================================================
   (function () {
     const modal = document.getElementById('modalRomaneio');
@@ -11,7 +12,16 @@
     const campoData = document.getElementById('dataRomaneio');
     const msg = document.getElementById('msgRomaneio');
     const resultado = document.getElementById('resultadoRomaneio');
+    const selecao = document.getElementById('selecaoRomaneio');
+    const listaRecusados = document.getElementById('listaRecusadosRomaneio');
+    const contagemRecusados = document.getElementById('contagemRecusadosRomaneio');
+    const listaNaoKabum = document.getElementById('listaNaoKabumRomaneio');
+    const listaAutomaticas = document.getElementById('listaAutomaticasRomaneio');
+    const previa = document.getElementById('previaRomaneio');
     if (!modal || !btnAbrir || !btnGerar || !seletor) return;
+
+    let dadosSelecao = null;   // resposta de obterSelecaoRomaneio para a carga escolhida
+    let pedidoSelecao = 0;     // ignora respostas antigas se a carga mudar entretanto
 
     const esc = t => String(t == null ? '' : t)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -28,6 +38,7 @@
       msg.style.display = texto ? 'block' : 'none';
     }
 
+    // ---------------------------------------------------------------- cargas
     function preencherCargas(lista) {
       const atual = (typeof selectAbas !== 'undefined' && selectAbas && selectAbas.value) || seletor.value;
       if (!lista || !lista.length) {
@@ -38,13 +49,15 @@
       seletor.innerHTML = '<option value="">Selecione a carga</option>' + lista.map(c =>
         `<option value="${esc(c.nome)}">${esc(c.nome)}${c.finalizada ? ' (finalizada)' : ''}</option>`).join('');
       if (atual && lista.some(c => c.nome === atual)) seletor.value = atual;
-      btnGerar.disabled = false;
+      carregarSelecao();
     }
 
     function abrir() {
       if (!campoData.value) campoData.value = hojeISO();
       mensagem('', '');
       resultado.style.display = 'none';
+      selecao.hidden = true;
+      dadosSelecao = null;
       seletor.innerHTML = '<option value="">A carregar cargas…</option>';
       btnGerar.disabled = true;
       modal.style.display = 'flex';
@@ -55,6 +68,128 @@
     }
     function fechar() { modal.style.display = 'none'; }
 
+    // ---------------------------------------------------------------- seleção prévia
+    function carregarSelecao() {
+      const carga = seletor.value;
+      resultado.style.display = 'none';
+      selecao.hidden = true;
+      dadosSelecao = null;
+      btnGerar.disabled = true;
+      if (!carga) { mensagem('', ''); return; }
+      const pedido = ++pedidoSelecao;
+      mensagem('A analisar a carga…', 'var(--brand-accent)');
+      google.script.run
+        .withSuccessHandler(d => {
+          if (pedido !== pedidoSelecao) return;
+          dadosSelecao = d;
+          desenharSelecao(d);
+          mensagem('', '');
+          btnGerar.disabled = false;
+        })
+        .withFailureHandler(e => {
+          if (pedido !== pedidoSelecao) return;
+          mensagem('Não foi possível ler a carga: ' + (e && e.message || e), 'var(--red-alert)');
+        })
+        .obterSelecaoRomaneio(carga);
+    }
+
+    function opcoesMotivo(atual) {
+      return '<option value="">Escolha o motivo…</option>' + dadosSelecao.motivos.map(m =>
+        `<option value="${esc(m.valor)}"${m.valor === atual ? ' selected' : ''}>${esc(m.rotulo)}</option>`).join('');
+    }
+
+    function desenharSelecao(d) {
+      contagemRecusados.textContent = d.recusados.length;
+      listaRecusados.innerHTML = d.recusados.length ? d.recusados.map((r, i) => `
+        <div class="romaneio-recusa${r.motivo ? '' : ' sem-motivo'}" data-i="${i}">
+          <div class="romaneio-recusa-info">
+            <strong>NF ${esc(r.nf)} · ${r.qtd} volume(s)</strong>
+            <span>${esc(r.produtoBase)}</span>
+          </div>
+          <select class="campo-motivo" aria-label="Motivo da recusa da NF ${esc(r.nf)}">${opcoesMotivo(r.motivo)}</select>
+          <label class="romaneio-recusa-produto"${r.motivo === 'embalagem_vazia' ? '' : ' hidden'}>
+            Produto no romaneio
+            <input type="text" class="campo-produto" value="${esc(r.produto)}" maxlength="200">
+          </label>
+        </div>`).join('') : '<p class="romaneio-vazio">Nenhum volume recusado manualmente nesta carga.</p>';
+
+      listaRecusados.querySelectorAll('.romaneio-recusa').forEach(el => {
+        const select = el.querySelector('.campo-motivo');
+        select.addEventListener('change', () => {
+          el.classList.toggle('sem-motivo', !select.value);
+          el.querySelector('.romaneio-recusa-produto').hidden = select.value !== 'embalagem_vazia';
+        });
+      });
+
+      listaNaoKabum.innerHTML = '';
+      (d.naoKabum || []).forEach(n => adicionarNaoKabum(n));
+
+      listaAutomaticas.innerHTML = d.automaticas.length
+        ? d.automaticas.map(a => `<li>${esc(a.titulo)}: ${a.nfs} NF(s)</li>`).join('')
+        : '<li>Nenhuma (sem faltas, parciais nem bloqueados bipados).</li>';
+      previa.textContent = 'Clique em "Atualizar" para ver o texto do romaneio.';
+      selecao.hidden = false;
+    }
+
+    function adicionarNaoKabum(valores) {
+      valores = valores || {};
+      const linha = document.createElement('div');
+      linha.className = 'romaneio-manual';
+      linha.innerHTML = `
+        <input type="text" class="campo-nf-manual" placeholder="NF" value="${esc(valores.nf || '')}" aria-label="NF" maxlength="40">
+        <input type="number" class="campo-qtd-manual" min="1" step="1" value="${esc(valores.qtd || 1)}" aria-label="Quantidade">
+        <input type="text" class="campo-produto-manual" placeholder="Produto" value="${esc(valores.produto || '')}" aria-label="Produto" maxlength="200">
+        <button type="button" class="btn-close" aria-label="Remover nota">&times;</button>`;
+      linha.querySelector('.btn-close').addEventListener('click', () => linha.remove());
+      listaNaoKabum.appendChild(linha);
+      return linha;
+    }
+
+    /** Escolhas atuais do ecrã; devolve null (com mensagem) se faltar algo obrigatório. */
+    function lerEscolhas(validar) {
+      const selecoes = [];
+      const semMotivo = [];
+      listaRecusados.querySelectorAll('.romaneio-recusa').forEach(el => {
+        const r = dadosSelecao.recusados[+el.dataset.i];
+        const motivo = el.querySelector('.campo-motivo').value;
+        if (!motivo) semMotivo.push(r.nf);
+        selecoes.push({ nf: r.nf, motivo, produto: motivo === 'embalagem_vazia' ? el.querySelector('.campo-produto').value.trim() : '' });
+      });
+      const naoKabum = [];
+      let incompleta = false;
+      listaNaoKabum.querySelectorAll('.romaneio-manual').forEach(el => {
+        const nf = el.querySelector('.campo-nf-manual').value.trim();
+        const produto = el.querySelector('.campo-produto-manual').value.trim();
+        const qtd = Math.max(1, parseInt(el.querySelector('.campo-qtd-manual').value, 10) || 1);
+        if (!nf && !produto) return;
+        if (!nf || !produto) incompleta = true;
+        naoKabum.push({ nf, qtd, produto });
+      });
+      if (validar && semMotivo.length) {
+        mensagem('Escolha o motivo da recusa para a(s) NF(s): ' + semMotivo.join(', ') + '.', 'var(--red-alert)');
+        return null;
+      }
+      if (validar && incompleta) {
+        mensagem('Nas notas não pertencentes ao KaBuM, preencha a NF e o produto.', 'var(--red-alert)');
+        return null;
+      }
+      return { selecoes, naoKabum };
+    }
+
+    function atualizarPrevia() {
+      if (!dadosSelecao) return;
+      const escolhas = lerEscolhas(false);
+      previa.textContent = 'A montar…';
+      google.script.run
+        .withSuccessHandler(r => {
+          const pendente = r.pendentes && r.pendentes.length ? `\n\n(Sem motivo, ainda fora do romaneio: NF ${r.pendentes.join(', ')})` : '';
+          previa.textContent = r.linhas.join('\n') + `\n\nVolumes: ${r.volumes}` + pendente;
+        })
+        .withFailureHandler(e => { previa.textContent = 'Não foi possível montar a pré-visualização: ' + (e && e.message || e); })
+        .previaRomaneioCarga({ carga: dadosSelecao.carga, dataISO: campoData.value || hojeISO(), selecoes: escolhas.selecoes, naoKabum: escolhas.naoKabum });
+    }
+
+    // ---------------------------------------------------------------- geração
     function item(classe, titulo, detalhe, url, rotuloLink) {
       const link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(rotuloLink)}</a>` : '';
       return `<div class="romaneio-item ${classe}">
@@ -65,7 +200,7 @@
       btnGerar.disabled = false;
       const s = r.resumo || {};
       const partes = [
-        item('ok', r.pdf.nome, `${s.pedidos} pedidos · ${s.volumes} volumes · ${s.faltaTotal} não encontrado(s) · ${s.parciais} parcial(is) · ${s.bloqueados} bloqueado(s) · ${s.recusados} recusado(s)`, r.pdf.url, 'Abrir PDF')
+        item('ok', r.pdf.nome, `${s.volumes} volume(s) no romaneio · ${s.pedidos} pedidos na carga`, r.pdf.url, 'Abrir PDF')
       ];
       (r.avisos || []).forEach(a => partes.push(item('aviso', 'Atenção', a)));
       if (r.modeloUrl) {
@@ -73,7 +208,8 @@
       }
       resultado.innerHTML = partes.join('');
       resultado.style.display = 'flex';
-      mensagem(`Romaneio gerado em ${r.segundos} s e guardado na pasta "Romaneios".`, 'var(--ok-text)');
+      mensagem(`Romaneio gerado em ${r.segundos} s e guardado na pasta "Romaneios". Os motivos ficaram gravados.`, 'var(--ok-text)');
+      try { resultado.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* navegador antigo */ }
     }
 
     function falhar(e) {
@@ -88,15 +224,24 @@
         seletor.focus();
         return;
       }
+      if (!dadosSelecao) return;
+      const escolhas = lerEscolhas(true);
+      if (!escolhas) return;
       btnGerar.disabled = true;
       resultado.style.display = 'none';
       mensagem('A gerar o romaneio… Na primeira vez o modelo é criado no Docs e pode levar até 30 s.', 'var(--brand-accent)');
       google.script.run.withSuccessHandler(mostrar).withFailureHandler(falhar)
-        .gerarRomaneioCarga({ carga: seletor.value, dataISO: campoData.value || hojeISO() });
+        .gerarRomaneioCarga({
+          carga: seletor.value, dataISO: campoData.value || hojeISO(),
+          selecoes: escolhas.selecoes, naoKabum: escolhas.naoKabum
+        });
     }
 
     btnAbrir.addEventListener('click', abrir);
     btnGerar.addEventListener('click', gerar);
+    seletor.addEventListener('change', carregarSelecao);
+    document.getElementById('btnAdicionarNaoKabum').addEventListener('click', () => adicionarNaoKabum().querySelector('input').focus());
+    document.getElementById('btnPreviaRomaneio').addEventListener('click', atualizarPrevia);
     document.getElementById('btnFecharModalRomaneio').addEventListener('click', fechar);
     document.getElementById('btnCancelarRomaneio').addEventListener('click', fechar);
   })();

@@ -286,7 +286,7 @@
 
   label { font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-support); letter-spacing: 0.02em; }
 
-  select, input[type="text"], input[type="date"], textarea {
+  select, input[type="text"], input[type="date"], input[type="number"], textarea {
     padding: 10px 12px;
     border: 1px solid var(--border-strong);
     background-color: var(--bg-card);
@@ -304,7 +304,7 @@
     background-repeat: no-repeat; background-position: right 12px center; padding-right: 40px;
   }
 
-  select:focus, input[type="text"]:focus, input[type="date"]:focus, textarea:focus {
+  select:focus, input[type="text"]:focus, input[type="date"]:focus, input[type="number"]:focus, textarea:focus {
     border-color: var(--brand-accent);
     box-shadow: 0 0 0 3px var(--brand-soft);
   }
@@ -982,7 +982,42 @@
   .romaneio-item.erro .romaneio-item-texto span { color: var(--red-alert); }
   .romaneio-item a { margin-left: auto; flex-shrink: 0; color: var(--brand-accent); font-weight: 600; text-decoration: none; }
   .romaneio-item a:hover { text-decoration: underline; }
-  @media (max-width: 560px) { .romaneio-campos { grid-template-columns: minmax(0, 1fr); } }
+  .modal-romaneio { max-width: 760px; }
+  .romaneio-selecao { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+  .romaneio-selecao[hidden] { display: none; }
+  .romaneio-bloco { padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-subtle); }
+  .romaneio-bloco .ajuda-texto { margin: 0 0 10px; }
+  .romaneio-bloco-titulo { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--text-main); }
+  .romaneio-bloco-contagem { padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--recusa-soft); color: var(--recusa); }
+  .romaneio-recusados, .romaneio-nao-kabum { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+  .romaneio-recusa {
+    display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 8px 12px; align-items: center;
+    padding: 10px 12px; border-radius: 8px; background: var(--bg-card); border: 1px solid var(--border-color);
+  }
+  .romaneio-recusa.sem-motivo { border-color: var(--brand-accent); }
+  .romaneio-recusa-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+  .romaneio-recusa-info strong { color: var(--text-main); }
+  .romaneio-recusa-info span { color: var(--text-support); overflow-wrap: anywhere; }
+  .romaneio-recusa select, .romaneio-recusa input, .romaneio-manual input { width: 100%; }
+  .romaneio-recusa-produto { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-support); }
+  .romaneio-recusa-produto[hidden] { display: none; }
+  .romaneio-manual { display: grid; grid-template-columns: 140px 80px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+  .romaneio-manual .btn-close { width: 32px; height: 32px; }
+  .romaneio-vazio { margin: 0; font-size: 13px; color: var(--text-support); font-style: italic; }
+  .romaneio-automaticas { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-main); }
+  .romaneio-automaticas li { margin: 2px 0; }
+  .romaneio-previa-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .romaneio-previa {
+    margin: 6px 0 0; padding: 10px 12px; max-height: 220px; overflow: auto; white-space: pre-wrap;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5;
+    background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-main);
+  }
+  @media (max-width: 560px) {
+    .romaneio-campos { grid-template-columns: minmax(0, 1fr); }
+    .romaneio-recusa { grid-template-columns: minmax(0, 1fr); }
+    .romaneio-manual { grid-template-columns: minmax(0, 1fr) 70px auto; }
+    .romaneio-manual .campo-produto-manual { grid-column: 1 / -1; grid-row: 2; }
+  }
 
   /* ============================================================================
      MODO RECUSA (AVARIA)

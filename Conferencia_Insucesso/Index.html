@@ -549,7 +549,7 @@
 
     <!-- MODAL: Romaneio de devolução (PDF por carga) -->
     <div id="modalRomaneio" class="modal-overlay modal-z3" style="display: none;">
-      <div class="modal-content card-container modal-formulario">
+      <div class="modal-content card-container modal-formulario modal-romaneio">
         <div class="modal-header">
           <h2 class="card-title">Romaneio de devolução</h2>
           <button type="button" id="btnFecharModalRomaneio" class="btn-close" aria-label="Fechar">&times;</button>
@@ -572,6 +572,35 @@
             </div>
           </div>
           <p class="ajuda-texto romaneio-nota">As caixas de estado do volume saem todas marcadas.</p>
+
+          <!-- Seleção prévia (preenchida ao escolher a carga) -->
+          <div id="selecaoRomaneio" class="romaneio-selecao" hidden>
+            <section class="romaneio-bloco">
+              <h3 class="romaneio-bloco-titulo">Recusados manualmente <span id="contagemRecusadosRomaneio" class="romaneio-bloco-contagem">0</span></h3>
+              <p class="ajuda-texto">Escolha o motivo de cada NF. Na embalagem vazia pode corrigir o nome do produto.</p>
+              <div id="listaRecusadosRomaneio" class="romaneio-recusados"></div>
+            </section>
+
+            <section class="romaneio-bloco">
+              <h3 class="romaneio-bloco-titulo">Não pertencentes ao KaBuM</h3>
+              <p class="ajuda-texto">Volumes que vieram na carga mas não são do KaBuM. Escreva a NF, a quantidade e o produto como devem sair no romaneio.</p>
+              <div id="listaNaoKabumRomaneio" class="romaneio-nao-kabum"></div>
+              <button type="button" id="btnAdicionarNaoKabum" class="btn-secundario btn-pequeno">+ Adicionar nota</button>
+            </section>
+
+            <section class="romaneio-bloco">
+              <h3 class="romaneio-bloco-titulo">Entram automaticamente</h3>
+              <ul id="listaAutomaticasRomaneio" class="romaneio-automaticas"></ul>
+            </section>
+
+            <section class="romaneio-bloco">
+              <div class="romaneio-previa-topo">
+                <h3 class="romaneio-bloco-titulo">Pré-visualização</h3>
+                <button type="button" id="btnPreviaRomaneio" class="btn-secundario btn-pequeno">Atualizar</button>
+              </div>
+              <pre id="previaRomaneio" class="romaneio-previa">Clique em "Atualizar" para ver o texto do romaneio.</pre>
+            </section>
+          </div>
 
           <div id="msgRomaneio" class="msg-progresso" style="display: none;"></div>
           <div id="resultadoRomaneio" class="romaneio-resultado" style="display: none;"></div>
