@@ -41,7 +41,7 @@
     --div-bg: #1d1631;      --div-border: #5b3fa0;    --div-text: #d2bfff;    --div-sub: #c1b3de;
     --rep-bg: #1b2230;      --rep-border: #2f3a4b;    --rep-text: #e6edf3;    --rep-sub: #9aa6b2;
 
-    /* Modo recusa (avaria) */
+    /* Modo recusa */
     --recusa: #ff6b8b;      --recusa-soft: rgba(255, 107, 139, 0.14);  --recusa-forte: #be123c;
     --rec-bg: #2b0f18;      --rec-border: #be123c;    --rec-text: #ff9bb0;    --rec-sub: #f0b6c3;
 
@@ -86,7 +86,7 @@
     --div-bg: #f6f1ff;      --div-border: #c8b3f3;    --div-text: #6639ba;    --div-sub: #5b4a7d;
     --rep-bg: #f3f5f8;      --rep-border: #dfe3e8;    --rep-text: #0f172a;    --rep-sub: #57606a;
 
-    /* Modo recusa (avaria) */
+    /* Modo recusa */
     --recusa: #be123c;      --recusa-soft: #ffe4ea;   --recusa-forte: #be123c;
     --rec-bg: #fff0f3;      --rec-border: #f19bb0;    --rec-text: #9f1239;    --rec-sub: #7a2a3d;
 
@@ -795,6 +795,35 @@
   .detalhes-tabela { max-height: 250px; overflow-y: auto; margin-bottom: 0; }
   .detalhes-tabela-baixa { max-height: 180px; }
   .detalhes-tabela table { width: 100%; }
+
+  /* --- Painel do motor de julgamento (Detalhes e Resumo) --- */
+  .julg-painel { text-align: left; }
+  .julg-secao { margin-top: 18px; }
+  .julg-secao:first-child { margin-top: 4px; }
+  .julg-titulo {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-support);
+  }
+  .julg-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding-top: 0; }
+  .julg-grid .micro-card { padding: 10px 14px; }
+  .julg-grid .micro-card-value { font-size: 22px; margin-top: auto; }
+  .micro-card-sub { font-size: 11px; color: var(--text-support); }
+  .julg-alertas { margin-top: 4px; padding: 12px 14px; border-radius: 10px; background: var(--red-soft); border: 1px solid var(--stop-border); }
+  .julg-alertas .julg-titulo { color: var(--stop-text); }
+  .julg-contagem {
+    min-width: 20px; padding: 1px 7px; border-radius: 10px; font-size: 11px; text-align: center;
+    background: var(--red-alert); color: #ffffff;
+  }
+  .julg-lista-alertas { list-style: none; margin: 0; padding: 0; max-height: 160px; overflow-y: auto; }
+  .julg-alerta { position: relative; padding: 6px 0 6px 16px; font-size: 13px; line-height: 1.4; color: var(--text-main); border-top: 1px solid var(--stop-border); }
+  .julg-alerta:first-child { border-top: 0; }
+  .julg-alerta::before { content: ''; position: absolute; left: 2px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--brand-accent); }
+  .julg-alerta-critico::before { background: var(--red-alert); }
+  .julg-detalhes th { position: sticky; top: 0; z-index: 1; background: var(--bg-global); color: var(--text-support); font-size: 12px; font-weight: 600; text-transform: uppercase; }
+  .julg-detalhes td { font-size: 13px; padding: 9px 14px; }
+  .julg-produto { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .julg-vazio { color: var(--text-support); text-align: center !important; font-style: italic; }
+  .outra-carga { color: var(--violet); font-weight: 600; }
 
   /* --- Resumo final --- */
   .modal-resumo { z-index: 2000; }

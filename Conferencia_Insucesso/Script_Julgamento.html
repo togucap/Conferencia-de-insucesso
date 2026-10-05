@@ -1,0 +1,189 @@
+<script>
+  // ============================================================================
+  // SCRIPT: JULGAMENTO DA CARGA (pop-up Detalhes, resumo da finalização e Excel)
+  // As regras estão em julgarCargaMotor_ (Julgamento.gs), injetado no Index.html:
+  // aqui só se monta a entrada com o estado atual da tabela e se desenha o resultado.
+  // ============================================================================
+
+  const CABECALHO_JULGAMENTO = ['Nota Fiscal', 'Número do Pedido Faturado', 'Mercadoria Código', 'Produto Nome',
+    'Avaliação', 'Status Conferência', 'Outras Cargas'];
+
+  /** Status de cada linha tal como está agora no ecrã (inclui bipes ainda a gravar na planilha). */
+  function statusAtualDaLinha(linhaObj, tr) {
+    const original = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus] || '').trim() : '';
+    if (original.indexOf('Divergência') >= 0 || original.indexOf('Não Encontrado') >= 0) return original;
+    if (!tr) return original;
+    if (tr.classList.contains('linha-recusada-manual')) return 'Recusado Manualmente';
+    if (tr.classList.contains('linha-bloqueio-bipado')) return 'Bloqueado';
+    if (tr.classList.contains('linha-conferida')) return 'Conferido';
+    return original === 'Conferido' || original === 'Recusado Manualmente' || original === 'Bloqueado' ? '' : original;
+  }
+
+  function julgarCargaCliente(recebidosLista) {
+    const celula = (linhaObj, tds, indice) => {
+      if (indice === -1) return '';
+      if (tds && tds[indice]) return tds[indice].textContent.trim();
+      return String(linhaObj.dados[indice] == null ? '' : linhaObj.dados[indice]).trim();
+    };
+    const trs = {};
+    if (tabelaCorpo) tabelaCorpo.querySelectorAll('tr[data-linha-original]').forEach(tr => { trs[tr.dataset.linhaOriginal] = tr; });
+
+    const linhas = [];
+    const numerosLinha = [];
+    linhasGlobais.forEach(linhaObj => {
+      const tr = trs[linhaObj.indexOriginal];
+      const tds = tr ? tr.querySelectorAll('td') : null;
+      const etiqueta = celula(linhaObj, null, indiceColunaMercadoria);
+      linhas.push([
+        celula(linhaObj, null, indiceNF),
+        celula(linhaObj, null, indicePedidoFaturado).replace('MSPC', '').trim(),
+        etiqueta,
+        celula(linhaObj, null, indiceColunaProduto),
+        celula(linhaObj, tds, indiceColunaAvaliacao),
+        statusAtualDaLinha(linhaObj, tr),
+        (outrasCargasPorEtiqueta[etiqueta] || []).join(', ')
+      ]);
+      numerosLinha.push(linhaObj.indexOriginal);
+    });
+
+    return julgarCargaMotor_({
+      carga: cargaAtual,
+      cabecalho: CABECALHO_JULGAMENTO,
+      linhas,
+      numerosLinha,
+      recebidosLista: Array.from(recebidosLista || setListaChegadaCarga),
+      historico: mapaHistoricoGlobal || {},
+      divergenciasExtras: Array.from(divergenciasBipadas).map(etiqueta => ({
+        etiqueta, outrasCargas: outrasCargasPorEtiqueta[etiqueta] || []
+      }))
+    });
+  }
+
+  /** Sincroniza a Lista de Chegada da carga (servidor) e devolve o julgamento atual. */
+  function obterJulgamentoAtual(callback, recebidosForcados) {
+    obterSetRecebidosAba(function(setRecebidos) {
+      setListaChegadaCarga = setRecebidos;
+      callback(julgarCargaCliente(setRecebidos));
+    }, recebidosForcados || null);
+  }
+
+  // --------------------------------------------------------------------------
+  // PAINEL (cartões, alertas e tabela de detalhes)
+  // --------------------------------------------------------------------------
+  function escJulg(t) {
+    return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function renderizarPainelJulgamento(raiz, j) {
+    if (!raiz) return;
+    const S = j.SIT, P = j.PED;
+    const cp = j.contagens.pedidos, ci = j.contagens.itens;
+    const n = (obj, k) => obj[k] || 0;
+    const itensDe = situacoesPedido => j.itens.filter(it => situacoesPedido.indexOf(it.situacaoPedido) >= 0);
+    const emOutras = j.divergencias.filter(d => d.outrasCargas.length).length;
+
+    const grupos = [
+      { titulo: 'Pedidos', cartoes: [
+        { id: 'ok', rotulo: 'Pedidos OK', valor: n(cp, P.OK), cor: 'cor-ok', itens: () => itensDe([P.OK]) },
+        { id: 'parcial', rotulo: 'Aceitos parcialmente', valor: n(cp, P.PARCIAL), cor: 'cor-brand', itens: () => itensDe([P.PARCIAL]) },
+        { id: 'falta', rotulo: 'Não encontrados na carga', valor: n(cp, P.FALTA_TOTAL), cor: 'cor-perigo', itens: () => itensDe([P.FALTA_TOTAL]) },
+        { id: 'bloq', rotulo: 'Bloqueados: recusar', valor: n(cp, P.BLOQ_RECUSAR), cor: 'cor-perigo', itens: () => itensDe([P.BLOQ_RECUSAR]) },
+        { id: 'rec', rotulo: 'Recusados (todos os volumes)', valor: n(cp, P.RECUSADO), cor: 'cor-recusa', itens: () => itensDe([P.RECUSADO]) }
+      ] },
+      { titulo: 'Volumes', cartoes: [
+        { id: 'v-ok', rotulo: 'OK bipados', valor: n(ci, S.OK_BIPADO), cor: 'cor-ok', itens: () => j.itens.filter(it => it.situacao === S.OK_BIPADO) },
+        { id: 'v-lista', rotulo: 'OK pela Lista de Chegada (sem bipe)', valor: n(ci, S.OK_LISTA), cor: 'cor-info', itens: () => j.itens.filter(it => it.situacao === S.OK_LISTA) },
+        { id: 'v-falta', rotulo: 'Em falta', valor: n(ci, S.FALTA), cor: 'cor-perigo', itens: () => j.itens.filter(it => it.situacao === S.FALTA) },
+        { id: 'v-rec', rotulo: 'Recusados manualmente', valor: n(ci, S.RECUSADO), cor: 'cor-recusa', itens: () => j.itens.filter(it => it.situacao === S.RECUSADO) },
+        { id: 'v-bloq', rotulo: 'Bloqueados bipados (a recusar)', valor: n(ci, S.BLOQ_RECUSAR), cor: 'cor-perigo', itens: () => j.itens.filter(it => it.situacao === S.BLOQ_RECUSAR) },
+        { id: 'v-ign', rotulo: 'Bloqueados não recebidos', valor: n(ci, S.BLOQ_IGNORADO), cor: '', itens: () => j.itens.filter(it => it.situacao === S.BLOQ_IGNORADO) },
+        { id: 'v-fora', rotulo: 'Fora da malha', valor: j.divergencias.length, cor: 'cor-violeta',
+          sub: emOutras ? `${emOutras} encontrada(s) noutra carga` : '', divergencias: true }
+      ] }
+    ];
+
+    const alertas = j.alertas.slice().sort((a, b) => (a.nivel === b.nivel ? 0 : a.nivel === 'critico' ? -1 : 1));
+    const htmlAlertas = alertas.length ? `
+      <div class="julg-alertas">
+        <h4 class="julg-titulo">Alertas <span class="julg-contagem">${alertas.length}</span></h4>
+        <ul class="julg-lista-alertas">${alertas.map(a => `
+          <li class="julg-alerta julg-alerta-${escJulg(a.nivel)}">${escJulg(a.texto)}</li>`).join('')}
+        </ul>
+      </div>` : '';
+
+    raiz.innerHTML = htmlAlertas + grupos.map((g, gi) => `
+      <div class="julg-secao">
+        <h4 class="julg-titulo">${escJulg(g.titulo)}</h4>
+        <div class="micro-grid julg-grid">${g.cartoes.map((c, ci2) => `
+          <div class="micro-card clickable" data-g="${gi}" data-c="${ci2}" role="button" tabindex="0">
+            <span class="micro-card-label">${escJulg(c.rotulo)}</span>
+            <span class="micro-card-value ${c.cor}">${c.valor}</span>
+            ${c.sub ? `<span class="micro-card-sub">${escJulg(c.sub)}</span>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>`).join('') + `
+      <div class="detalhes-container julg-detalhes" hidden>
+        <h4 class="detalhes-titulo"></h4>
+        <div class="table-container detalhes-tabela"><table><thead></thead><tbody></tbody></table></div>
+      </div>`;
+
+    const detalhes = raiz.querySelector('.julg-detalhes');
+    const abrir = cartaoEl => {
+      const c = grupos[+cartaoEl.dataset.g].cartoes[+cartaoEl.dataset.c];
+      raiz.querySelectorAll('.micro-card').forEach(x => x.classList.toggle('active', x === cartaoEl));
+      detalhes.querySelector('.detalhes-titulo').textContent = c.rotulo;
+      const thead = detalhes.querySelector('thead');
+      const tbody = detalhes.querySelector('tbody');
+      if (c.divergencias) {
+        thead.innerHTML = '<tr><th>Etiqueta</th><th>Situação</th></tr>';
+        tbody.innerHTML = j.divergencias.length ? j.divergencias.map(d =>
+          `<tr><td><strong>${escJulg(d.etiqueta)}</strong></td><td>${escJulg(d.veredito)}</td></tr>`).join('')
+          : '<tr><td colspan="2" class="julg-vazio">Nenhum registo.</td></tr>';
+      } else {
+        const lista = c.itens();
+        thead.innerHTML = '<tr><th>Pedido</th><th>NF</th><th>Etiqueta</th><th>Produto</th><th>Situação</th><th>Lista de Chegada</th></tr>';
+        let grupo = 1, ultimo = null;
+        tbody.innerHTML = lista.length ? lista.map(it => {
+          if (it.pedido !== ultimo) { grupo = grupo === 1 ? 2 : 1; ultimo = it.pedido; }
+          return `<tr class="linha-multiplo-grupo-${grupo}">
+            <td>${escJulg(it.pedido)}</td><td>${escJulg(it.nf)}</td><td><strong>${escJulg(it.etiqueta)}</strong></td>
+            <td class="julg-produto">${escJulg(it.produto)}</td><td>${escJulg(it.veredito)}</td>
+            <td>${it.naLista ? '<span class="cor-ok">Sim</span>' : 'Não'}</td></tr>`;
+        }).join('') : '<tr><td colspan="6" class="julg-vazio">Nenhum registo.</td></tr>';
+      }
+      detalhes.hidden = false;
+    };
+    raiz.querySelectorAll('.micro-card.clickable').forEach(el => {
+      el.addEventListener('click', () => abrir(el));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(el); } });
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // ETIQUETAS FORA DA MALHA ENCONTRADAS NOUTRAS CARGAS
+  // --------------------------------------------------------------------------
+  function registarOutrasCargas(etiqueta, cargas) {
+    etiqueta = String(etiqueta || '').trim();
+    if (!etiqueta || !cargas || !cargas.length) return;
+    outrasCargasPorEtiqueta[etiqueta] = cargas.slice();
+    const texto = 'Pertence à carga ' + cargas.join(', ');
+
+    if (listaNaoEncontrados) {
+      listaNaoEncontrados.querySelectorAll('li[data-etiqueta]').forEach(li => {
+        if (li.dataset.etiqueta !== etiqueta || li.querySelector('.outra-carga')) return;
+        const span = document.createElement('span');
+        span.className = 'outra-carga';
+        span.textContent = ' · ' + texto;
+        li.appendChild(span);
+      });
+    }
+    // Se o cartão do último bipe ainda é desta etiqueta, acrescenta o aviso
+    const cartao = resultadoBipe ? resultadoBipe.querySelector('.bipe-card[data-etiqueta]') : null;
+    if (cartao && cartao.dataset.etiqueta === etiqueta && !cartao.querySelector('.bipe-aviso-outra-carga')) {
+      const aviso = document.createElement('div');
+      aviso.className = 'bipe-aviso bipe-aviso-info bipe-aviso-outra-carga';
+      aviso.textContent = 'Encontrada noutra carga: ' + cargas.join(', ') + '. Fica sinalizada; não entra no romaneio por agora.';
+      cartao.appendChild(aviso);
+    }
+  }
+</script>

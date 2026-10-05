@@ -113,6 +113,10 @@
   let recusasInterceptadas = new Set(); 
   let divergenciasBipadas = new Set(); 
   let linhasGlobais = []; 
+  // Motor de julgamento: estado auxiliar
+  let pedidosBloqueados = new Set();      // pedidos com "Não Receber" (o bloqueio vale para o pedido inteiro)
+  let setListaChegadaCarga = new Set();   // chaves "pedido|etiqueta" na Lista de Chegada
+  let outrasCargasPorEtiqueta = {};       // etiqueta fora da malha -> cargas onde ela existe
   
   // Dicionário em memória do Cérebro Histórico JSON
   let mapaHistoricoGlobal = {};

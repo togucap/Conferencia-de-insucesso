@@ -46,7 +46,7 @@
       const status = textoCelula(tds, typeof indiceStatus !== 'undefined' ? indiceStatus : -1);
       const aval = textoCelula(tds, typeof indiceColunaAvaliacao !== 'undefined' ? indiceColunaAvaliacao : -1).toLowerCase();
       const divergencia = status.includes('Divergência') || status.includes('Não Encontrado');
-      const recusar = aval === 'não receber' || aval === 'nao receber' || status === 'Bloqueado';
+      const recusar = aval === 'não receber' || aval === 'nao receber' || status === 'Bloqueado' || tr.classList.contains('linha-pedido-bloqueado');
       const conferido = tr.classList.contains('linha-conferida');
       const recusaManual = tr.classList.contains('linha-recusada-manual') || status === 'Recusado Manualmente';
       const pedido = textoCelula(tds, typeof indicePedidoFaturado !== 'undefined' ? indicePedidoFaturado : -1).replace('MSPC', '').trim();
@@ -76,7 +76,7 @@
 
     function chipStatus(estado) {
       if (estado.recusar) return { classe: 'st-recusar', texto: 'Não receber' };
-      if (estado.recusaManual) return { classe: 'st-recusa-manual', texto: 'Recusado (avaria)' };
+      if (estado.recusaManual) return { classe: 'st-recusa-manual', texto: 'Recusado manualmente' };
       if (estado.conferido) return { classe: 'st-ok', texto: 'Conferido' };
       return { classe: 'st-pendente', texto: 'Pendente' };
     }
@@ -194,7 +194,7 @@
       const subRecusar = document.getElementById('kpiSubRecusar');
       if (subRecusar) {
         subRecusar.textContent = contagem.recusados
-          ? `Não Receber · ${contagem.recusados} recusado(s) por avaria`
+          ? `Não Receber · ${contagem.recusados} recusado(s) manualmente`
           : 'marcados Não Receber';
       }
     }
@@ -290,7 +290,7 @@
       'divergencia':          { classe: 'st-divergencia', texto: 'Fora da carga' },
       'divergencia-repetida': { classe: 'st-divergencia', texto: 'Já registada' },
       'repetido':             { classe: 'st-repetido',    texto: 'Já conferido' },
-      'recusa-manual':        { classe: 'st-recusa-manual', texto: 'Recusado (avaria)' },
+      'recusa-manual':        { classe: 'st-recusa-manual', texto: 'Recusado manualmente' },
       'recusa-convertida':    { classe: 'st-recusa-manual', texto: 'Alterado p/ recusa' },
       'invalido':             { classe: 'st-repetido',    texto: 'Inválido' }
     };
@@ -336,10 +336,10 @@
       if (bannerModoRecusa) bannerModoRecusa.hidden = !modoRecusa;
       if (textoModoRecusa) {
         textoModoRecusa.textContent = modoRecusa
-          ? 'LIGADO: cada volume bipado será RECUSADO MANUALMENTE (avaria).'
+          ? 'LIGADO: cada volume bipado será RECUSADO MANUALMENTE.'
           : 'Desligado: os volumes bipados ficam como Conferido.';
       }
-      if (campoEtiqueta) campoEtiqueta.placeholder = modoRecusa ? 'Bipe o volume a RECUSAR (avaria)' : 'Bipe ou digite a etiqueta';
+      if (campoEtiqueta) campoEtiqueta.placeholder = modoRecusa ? 'Bipe o volume a RECUSAR' : 'Bipe ou digite a etiqueta';
       const visaoBiparEl = document.getElementById('visaoBipar');
       if (campoEtiqueta && visaoBiparEl && visaoBiparEl.style.display !== 'none') campoEtiqueta.focus();
     }

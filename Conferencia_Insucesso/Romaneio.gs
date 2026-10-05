@@ -668,63 +668,49 @@ function imagemDoArquivo_(arquivo) {
 // ==========================================
 
 /**
- * Lê a aba da carga e monta o romaneio.
- * Regras provisórias, até às regras definitivas de cada secção:
- *  - Listagem: pedidos únicos ("Número do Pedido Faturado") e a data do nome da aba;
- *  - Volumes: etiquetas da carga ("Mercadoria Código");
- *  - Notas recusadas por avaria: volumes com status "Recusado Manualmente" (modo recusa);
- *  - restantes secções: saem com o título e sem NFs.
+ * Monta o romaneio a partir do motor de julgamento (Julgamento.gs), o mesmo do pop-up Detalhes:
+ *  - Listagem: pedidos da carga e a data do nome da aba; Volumes: etiquetas da carga;
+ *  - Notas não encontradas na carga: pedidos em falta total (todos os volumes);
+ *  - Notas aceitas parcialmente: pedidos parciais, só os volumes em falta;
+ *  - Notas recusadas por prazo indenizatório: pedidos bloqueados, só os volumes bipados;
+ *  - Notas recusadas por avaria: PROVISÓRIO, volumes recusados manualmente (o motivo de cada
+ *    recusa será escolhido num ecrã próprio ao gerar o romaneio);
+ *  - Fora da malha / outras cargas: ainda não entram (passam por validação noutro fluxo).
  */
 function montarDadosRomaneioCarga_(nomeAba, dataISO) {
-  const aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nomeAba);
-  if (!aba) throw new Error('A carga "' + nomeAba + '" não existe na planilha.');
+  const j = obterJulgamentoCarga(nomeAba);
+  if (!j.itens.length) throw new Error('A carga "' + nomeAba + '" está vazia.');
+  const S = j.SIT, P = j.PED;
 
-  const ultimaLinha = aba.getLastRow();
-  const ultimaColuna = aba.getLastColumn();
-  if (ultimaLinha < 2 || !ultimaColuna) throw new Error('A carga "' + nomeAba + '" está vazia.');
-
-  const valores = aba.getRange(1, 1, ultimaLinha, ultimaColuna).getDisplayValues();
-  const cab = valores[0].map(c => String(c).trim().toLowerCase());
-  const coluna = (...nomes) => { for (const n of nomes) { const i = cab.indexOf(n); if (i >= 0) return i; } return -1; };
-  const iNF = coluna('nota fiscal', 'nf');
-  const iPed = coluna('número do pedido faturado', 'numero do pedido faturado');
-  const iMerc = coluna('mercadoria código', 'mercadoria codigo');
-  const iProd = coluna('produto nome', 'produto', 'descrição', 'descricao');
-  const iStatus = coluna('status conferência', 'status conferencia');
-  if (iMerc < 0 || iPed < 0) {
-    throw new Error('A carga "' + nomeAba + '" não tem as colunas "Mercadoria Código" e "Número do Pedido Faturado".');
-  }
-
-  const pedidos = new Set();
-  let volumes = 0;
-  const avarias = [];
-  valores.slice(1).forEach(l => {
-    const merc = String(l[iMerc]).trim();
-    const ped = String(l[iPed]).trim();
-    if (!merc && !ped) return;
-    if (ped) pedidos.add(ped);
-    if (merc) volumes++;
-    const status = iStatus >= 0 ? String(l[iStatus]).trim() : '';
-    if (status === 'Recusado Manualmente') {
-      avarias.push({ nf: iNF >= 0 ? String(l[iNF]).trim() : '', produto: iProd >= 0 ? String(l[iProd]).trim() : merc });
-    }
-  });
-
-  const porSecao = { avaria: agruparPorNF_(avarias) };
+  const registos = filtro => j.itens.filter(filtro).map(it => ({ nf: it.nf, produto: it.produto || it.etiqueta }));
+  const porSecao = {
+    nao_encontradas: agruparPorNF_(registos(it => it.situacaoPedido === P.FALTA_TOTAL)),
+    parciais: agruparPorNF_(registos(it => it.situacaoPedido === P.PARCIAL && it.situacao === S.FALTA)),
+    prazo: agruparPorNF_(registos(it => it.situacao === S.BLOQ_RECUSAR)),
+    avaria: agruparPorNF_(registos(it => it.situacao === S.RECUSADO))
+  };
   const secoes = ROMANEIO_CONFIG.SECOES.map(s => ({
     titulo: s.titulo, mesmaLinha: s.mesmaLinha, linhas: porSecao[s.chave] || []
   }));
 
+  const cp = j.contagens.pedidos, ci = j.contagens.itens;
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const dataCarga = /^(\d{2})-(\d{2})-(\d{4})/.exec(nomeAba);
   return {
     carga: nomeAba,
     transportadora: ROMANEIO_CONFIG.TRANSPORTADORA,
     data: dataISO || hoje,
-    listagem: { pedidos: pedidos.size, data: dataCarga ? `${dataCarga[1]}/${dataCarga[2]}/${dataCarga[3]}` : nomeAba },
+    listagem: { pedidos: j.pedidos.length, data: dataCarga ? `${dataCarga[1]}/${dataCarga[2]}/${dataCarga[3]}` : nomeAba },
     secoes,
-    volumes,
-    resumo: { pedidos: pedidos.size, volumes, avarias: avarias.length }
+    volumes: j.itens.length,
+    resumo: {
+      pedidos: j.pedidos.length,
+      volumes: j.itens.length,
+      faltaTotal: cp[P.FALTA_TOTAL] || 0,
+      parciais: cp[P.PARCIAL] || 0,
+      bloqueados: cp[P.BLOQ_RECUSAR] || 0,
+      recusados: ci[S.RECUSADO] || 0
+    }
   };
 }
 

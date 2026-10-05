@@ -1,12 +1,13 @@
 <script>
   // ============================================================================
-  // SCRIPT: EXPORTAÇÃO EXCEL (COM CRUZAMENTO E VEREDITO FINAL)
-  // Responsabilidade: Gerar e descarregar o ficheiro .xlsx avaliando todas as camadas
+  // SCRIPT: EXPORTAÇÃO EXCEL (VEREDITO FINAL)
+  // Responsabilidade: gerar o .xlsx a partir do motor de julgamento (Julgamento.gs),
+  // o mesmo que alimenta o pop-up "Detalhes", o resumo da finalização e o romaneio.
   // ============================================================================
 
   function exportarRelatorioExcel() {
       if (!cargaAtual) return;
-      
+
       if (typeof XLSX === 'undefined') {
           alert("Erro: A biblioteca de exportação não foi carregada corretamente. Verifique a sua ligação à internet.");
           return;
@@ -16,136 +17,74 @@
       if (btnExportarResumo) btnExportarResumo.innerHTML = "⏳ A gerar Excel...";
       if (btnExportarMicro) btnExportarMicro.innerHTML = "⏳ Aguarde...";
 
-      obterSetRecebidosAba(function(listaChegadaSet) {
-          
-          // Adicionada a coluna "NF" no cabeçalho
-          const cabecalho = ["Categoria Física", "NF", "Pedido Faturado", "Mercadoria Codigo", "Produto Nome", "Status da Conferencia", "Na Lista de Chegada", "Veredito Final"];
+      obterJulgamentoAtual(function(j) {
+          const cabecalho = ["Situação do Pedido", "Tipo", "NF", "Pedido Faturado", "Mercadoria Codigo", "Produto Nome",
+                             "Status da Conferencia", "Na Lista de Chegada", "Veredito Final", "Alertas"];
           const linhasConsolidado = [cabecalho];
           const linhasUnitarios = [cabecalho];
           const linhasMultiplos = [cabecalho];
 
-          const adicionarLinha = (categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, vereditoTexto, totalPedido) => {
-              const linha = [categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, vereditoTexto];
-              linhasConsolidado.push(linha);
-              
-              if (categoria.includes("Divergência") || categoria.includes("Não Encontrado")) return;
+          const alertasPorItem = {};
+          j.alertas.forEach(a => {
+              const chave = (a.pedido || '') + '|' + (a.etiqueta || '');
+              (alertasPorItem[chave] = alertasPorItem[chave] || []).push(a.texto);
+          });
+          const rotuloPedido = {};
+          j.pedidos.forEach(p => { rotuloPedido[p.situacao] = p.rotulo; });
 
-              if (totalPedido === 1) {
-                  linhasUnitarios.push(linha);
-              } else if (totalPedido > 1) {
-                  linhasMultiplos.push(linha);
-              }
-          };
-
-          const metricas = calcularMetricasMicro();
-
-          linhasGlobais.forEach(linhaObj => {
-             const nf = indiceNF !== -1 && linhaObj.dados[indiceNF] ? String(linhaObj.dados[indiceNF]).trim() : "N/A";
-             const ped = linhaObj.dados[indicePedidoFaturado] ? String(linhaObj.dados[indicePedidoFaturado]).trim() : "";
-             const merc = linhaObj.dados[indiceColunaMercadoria] ? String(linhaObj.dados[indiceColunaMercadoria]).trim() : "";
-             const prod = linhaObj.dados[indiceColunaProduto] ? String(linhaObj.dados[indiceColunaProduto]).trim() : "";
-             const statusOriginal = indiceStatus !== -1 ? String(linhaObj.dados[indiceStatus]).trim() : "";
-             const chaveCheck = getChaveSistemica(linhaObj);
-             
-             const trCorrespondente = document.querySelector(`tr[data-linha-original="${linhaObj.indexOriginal}"]`);
-             const isConferido = trCorrespondente ? trCorrespondente.classList.contains('linha-conferida') : (statusOriginal === "Conferido");
-             const isRecusado = recusasInterceptadas.has(merc) || statusOriginal === "Bloqueado";
-             const isRecusaManual = trCorrespondente ? trCorrespondente.classList.contains('linha-recusada-manual') : (statusOriginal === "Recusado Manualmente");
-             const isDivergencia = statusOriginal.includes("Divergência") || statusOriginal.includes("Não Encontrado");
-             const isSistemico = listaChegadaSet.has(chaveCheck);
-             
-             const totalPed = mapaPedidosTotal[ped] || 1;
-
-             let statusTexto = "Aguardando Bipagem";
-             let categoria = "Pendente";
-             let sistemicoTexto = isSistemico ? "Sim (Na Lista)" : "Não";
-             let veredito = "";
-
-             if (isDivergencia) {
-                 veredito = "Fora da Carga";
-                 statusTexto = "Não Encontrado na Base";
-                 categoria = "Divergência";
-                 adicionarLinha(categoria, nf, ped || "N/A", merc, prod || "N/A", statusTexto, "N/A", veredito, totalPed);
-                 return; 
-             }
-
-             if (isRecusado) {
-                 statusTexto = "Bloqueado";
-                 categoria = "Recusado";
-                 veredito = "Bloqueio Intencional";
-             } else if (isRecusaManual) {
-                 statusTexto = "Recusado Manualmente";
-                 categoria = "Recusado Manualmente (Avaria)";
-                 veredito = "Recusa manual por avaria";
-             } else if (isConferido) {
-                 statusTexto = "Conferido";
-                 if (totalPed === 1) {
-                     categoria = "Finalizado (Unitário)";
-                 } else {
-                     categoria = metricas.pedCompletosPedidos.includes(ped) ? "Finalizado (Múltiplo)" : "Conferido (Múltiplo Parcial)";
-                 }
-                 veredito = isSistemico ? "Recebido com Sucesso (OK)" : "Atraso Sistémico (Aguardando Entrada)";
-             } else {
-                 categoria = (totalPed > 1) ? "Pendente (Múltiplo)" : "Pendente (Unitário)";
-                 veredito = isSistemico ? "Furo de Processo (Na lista sem bipar)" : "FALTA CONFIRMADA";
-             }
-
-             adicionarLinha(categoria, nf, ped, merc, prod, statusTexto, sistemicoTexto, veredito, totalPed);
+          // Itens agrupados por pedido (múltiplos primeiro, como na tabela)
+          const itens = j.itens.slice().sort((a, b) => {
+              if (a.multiplo !== b.multiplo) return a.multiplo ? -1 : 1;
+              return a.multiplo ? String(a.pedido).localeCompare(String(b.pedido)) : 0;
           });
 
-          Array.from(divergenciasBipadas).forEach(merc => {
-             // O indice da mercadoria mudou de 2 para 3 devido à injeção da NF
-             const jaExiste = linhasConsolidado.some(linha => linha[3] === merc && linha[0].includes("Divergência"));
-             if (!jaExiste) {
-                 linhasConsolidado.push(["Divergência", "N/A", "N/A", merc, "N/A", "Não Encontrado na Base", "N/A", "Fora da Carga"]);
-             }
-          });
-
-          let dadosMultiplos = linhasMultiplos.slice(1);
-          dadosMultiplos.sort((a, b) => {
-              // O indice do Pedido Faturado mudou de 1 para 2 devido à injeção da NF
-              let pedA = a[2].toString().trim();
-              let pedB = b[2].toString().trim();
-              if (pedA < pedB) return -1;
-              if (pedA > pedB) return 1;
-              return 0;
-          });
-
-          let linhasMultiplosFormatado = [cabecalho];
           let ultimoPedidoMultiplo = "";
-
-          dadosMultiplos.forEach((linha) => {
-              const pedAtual = linha[2].toString().trim();
-              if (ultimoPedidoMultiplo !== "" && pedAtual !== ultimoPedidoMultiplo) {
-                  // Adicionada uma coluna extra vazia para alinhar os espaçamentos
-                  linhasMultiplosFormatado.push(["", "", "", "", "", "", "", ""]);
+          itens.forEach(it => {
+              const linha = [
+                  rotuloPedido[it.situacaoPedido] || it.situacaoPedido,
+                  it.multiplo ? `Múltiplo (${it.totalPedido})` : "Unitário",
+                  it.nf || "N/A", it.pedido || "N/A", it.etiqueta, it.produto || "N/A",
+                  it.status || "Aguardando bipagem",
+                  it.naLista ? "Sim" : "Não",
+                  it.veredito,
+                  (alertasPorItem[(it.pedido || '') + '|' + it.etiqueta] || []).join(" | ")
+              ];
+              linhasConsolidado.push(linha);
+              if (it.multiplo) {
+                  if (ultimoPedidoMultiplo !== "" && it.pedido !== ultimoPedidoMultiplo) {
+                      linhasMultiplos.push(new Array(cabecalho.length).fill(""));
+                  }
+                  linhasMultiplos.push(linha);
+                  ultimoPedidoMultiplo = it.pedido;
+              } else {
+                  linhasUnitarios.push(linha);
               }
-              linhasMultiplosFormatado.push(linha);
-              ultimoPedidoMultiplo = pedAtual;
+          });
+
+          j.divergencias.forEach(d => {
+              linhasConsolidado.push(["Fora da malha", "-", "N/A", "N/A", d.etiqueta, "N/A",
+                  "Bipado fora da carga", "N/A", d.veredito,
+                  d.outrasCargas.length ? "Encontrada na carga " + d.outrasCargas.join(", ") : ""]);
           });
 
           const wb = XLSX.utils.book_new();
-          const wsConsolidado = XLSX.utils.aoa_to_sheet(linhasConsolidado);
-          const wsUnitarios = XLSX.utils.aoa_to_sheet(linhasUnitarios);
-          const wsMultiplosFormatada = XLSX.utils.aoa_to_sheet(linhasMultiplosFormatado);
-
           const wscols = [
-              {wch: 22}, // Categoria
-              {wch: 15}, // NF (Nova coluna)
-              {wch: 18}, // Pedido Faturado
+              {wch: 24}, // Situação do Pedido
+              {wch: 13}, // Tipo
+              {wch: 13}, // NF
+              {wch: 16}, // Pedido Faturado
               {wch: 18}, // Mercadoria Codigo
               {wch: 40}, // Produto Nome
-              {wch: 20}, // Status
-              {wch: 18}, // MSPC
-              {wch: 35}  // Veredito
+              {wch: 22}, // Status
+              {wch: 12}, // Lista de Chegada
+              {wch: 36}, // Veredito
+              {wch: 60}  // Alertas
           ];
-          wsConsolidado['!cols'] = wscols;
-          wsUnitarios['!cols'] = wscols;
-          wsMultiplosFormatada['!cols'] = wscols;
-
-          XLSX.utils.book_append_sheet(wb, wsConsolidado, "Consolidado");
-          XLSX.utils.book_append_sheet(wb, wsUnitarios, "Unitários");
-          XLSX.utils.book_append_sheet(wb, wsMultiplosFormatada, "Múltiplos");
+          [["Consolidado", linhasConsolidado], ["Unitários", linhasUnitarios], ["Múltiplos", linhasMultiplos]].forEach(([nome, linhas]) => {
+              const ws = XLSX.utils.aoa_to_sheet(linhas);
+              ws['!cols'] = wscols;
+              XLSX.utils.book_append_sheet(wb, ws, nome);
+          });
 
           XLSX.writeFile(wb, `Relatorio_Operacao_${cargaAtual}_${new Date().getTime()}.xlsx`);
 
@@ -157,7 +96,7 @@
   if (btnExportarMicro) {
       btnExportarMicro.addEventListener('click', exportarRelatorioExcel);
   }
-  
+
   if (btnExportarResumo) {
       btnExportarResumo.addEventListener('click', exportarRelatorioExcel);
   }

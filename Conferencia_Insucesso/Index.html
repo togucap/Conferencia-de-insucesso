@@ -12,11 +12,11 @@
   </head>
   <body>
 
-    <!-- Faixa de alerta do modo recusa (avaria): fica visível em qualquer ecrã enquanto estiver ligado -->
+    <!-- Faixa de alerta do modo recusa: fica visível em qualquer ecrã enquanto estiver ligado -->
     <div id="bannerModoRecusa" class="banner-modo-recusa" role="alert" hidden>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"></path><path d="m9 9 6 6M15 9l-6 6"></path></svg>
       <strong>MODO RECUSA ATIVO</strong>
-      <span class="banner-modo-recusa-texto">Cada volume bipado será registado como RECUSADO MANUALMENTE (avaria).</span>
+      <span class="banner-modo-recusa-texto">Cada volume bipado será registado como RECUSADO MANUALMENTE.</span>
       <button type="button" id="btnDesligarModoRecusa" class="banner-modo-recusa-botao">Desligar</button>
     </div>
 
@@ -190,7 +190,7 @@
               <button type="button" class="chip-filtro" data-filtro="conferidos">Conferidos <span class="chip-count cor-ok" data-count="conferidos">0</span></button>
               <button type="button" class="chip-filtro" data-filtro="recusar">Não receber <span class="chip-count cor-perigo" data-count="recusar">0</span></button>
               <button type="button" class="chip-filtro" data-filtro="mspc">MSPC <span class="chip-count cor-info" data-count="mspc">0</span></button>
-              <button type="button" class="chip-filtro" data-filtro="recusados">Recusados (avaria) <span class="chip-count cor-recusa" data-count="recusados">0</span></button>
+              <button type="button" class="chip-filtro" data-filtro="recusados">Recusados <span class="chip-count cor-recusa" data-count="recusados">0</span></button>
             </div>
             <label class="campo-busca">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
@@ -206,7 +206,7 @@
               <input type="checkbox" id="switchModoRecusa" role="switch" aria-describedby="textoModoRecusa">
               <span class="modo-recusa-trilho" aria-hidden="true"><span class="modo-recusa-bola"></span></span>
               <span class="modo-recusa-rotulo">
-                <strong>Modo recusa (avaria)</strong>
+                <strong>Modo recusa</strong>
                 <span id="textoModoRecusa">Desligado: os volumes bipados ficam como Conferido.</span>
               </span>
             </label>
@@ -304,45 +304,8 @@
           <button type="button" id="btnFecharModal" class="btn-close" aria-label="Fechar">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="micro-grid">
-            <div class="micro-card clickable" id="cardPedidosCompletos" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Pedidos bipados</span>
-              <span class="micro-card-value" id="microPedidosCompletos">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardMultiplosCompletos" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Pedidos múltiplos 100% finalizados</span>
-              <span class="micro-card-value" id="microMultiplosCompletos">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardMultiplosParciais" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Pedidos bipados parcialmente</span>
-              <span class="micro-card-value cor-brand" id="microMultiplosParciais">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardRecusasBipadas" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Pedidos a serem recusados</span>
-              <span class="micro-card-value cor-perigo" id="microRecusasBipadas">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardRecusadosManual" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Recusados manualmente (avaria)</span>
-              <span class="micro-card-value cor-recusa" id="microRecusadosManual">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardNaoEncontrados" title="Clique para ver os detalhes">
-              <span class="micro-card-label">Etiquetas não encontradas (divergências)</span>
-              <span class="micro-card-value cor-violeta" id="microNaoEncontrados">0</span>
-            </div>
-          </div>
-
-          <!-- Contentor de detalhes -->
-          <div id="detalhesMicroContainer" class="detalhes-container" style="display: none;">
-            <h4 id="detalhesMicroTitulo" class="detalhes-titulo">Detalhes</h4>
-            <div class="table-container detalhes-tabela">
-              <table>
-                <thead id="tabelaDetalhesMicroCabecalho"></thead>
-                <tbody id="tabelaDetalhesMicro">
-                </tbody>
-              </table>
-            </div>
-          </div>
-
+          <!-- Preenchido pelo motor de julgamento (Script_Julgamento) -->
+          <div id="painelJulgamentoMicro" class="julg-painel"></div>
         </div>
       </div>
     </div>
@@ -356,47 +319,18 @@
           <p class="resumo-descricao">Esta carga foi marcada como concluída. Abaixo está o resumo da operação.</p>
 
           <div class="micro-grid micro-grid-compacto">
-            <div class="micro-card clickable" id="cardResumoTaxa" title="Clique para ver os itens já auditados">
-              <span class="micro-card-label">Taxa de conclusão</span>
+            <div class="micro-card" id="cardResumoTaxa">
+              <span class="micro-card-label">Taxa de conclusão (bipados)</span>
               <span class="micro-card-value cor-ok" id="resumoTaxaConclusao">0%</span>
             </div>
-            <div class="micro-card clickable" id="cardResumoAuditados" title="Clique para ver os itens já auditados">
-              <span class="micro-card-label">Itens auditados (total)</span>
+            <div class="micro-card" id="cardResumoAuditados">
+              <span class="micro-card-label">Volumes bipados</span>
               <span class="micro-card-value" id="resumoItensAuditados">0 / 0</span>
-            </div>
-            <div class="micro-card clickable" id="cardResumoPendentes" title="Clique para ver todos os itens não auditados">
-              <span class="micro-card-label">Itens pendentes (não bipados)</span>
-              <span class="micro-card-value cor-brand" id="resumoPendentesGeral">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardResumoParciais" title="Clique para ver os itens pendentes em pedidos abertos">
-              <span class="micro-card-label">Pedidos parciais incompletos</span>
-              <span class="micro-card-value cor-brand" id="resumoParciais">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardResumoRecusados" title="Clique para ver os itens barrados">
-              <span class="micro-card-label">Itens recusados (bloqueados)</span>
-              <span class="micro-card-value cor-perigo" id="resumoRecusados">0</span>
-            </div>
-            <div class="micro-card clickable" id="cardResumoNaoEncontrados" title="Clique para ver itens bipados fora da carga">
-              <span class="micro-card-label">Divergências (fora da lista)</span>
-              <span class="micro-card-value cor-violeta" id="resumoNaoEncontrados">0</span>
-            </div>
-            <div class="micro-card clickable micro-card-largo" id="cardResumoRecusadosManual" title="Clique para ver os volumes recusados manualmente">
-              <span class="micro-card-label">Recusados manualmente (avaria)</span>
-              <span class="micro-card-value cor-recusa" id="resumoRecusadosManual">0</span>
             </div>
           </div>
 
-          <!-- Contentor para a tabela de detalhes do Resumo -->
-          <div id="detalhesResumoContainer" class="detalhes-container" style="display: none;">
-            <h4 id="detalhesResumoTitulo" class="detalhes-titulo">Detalhes</h4>
-            <div class="table-container detalhes-tabela detalhes-tabela-baixa">
-              <table>
-                <thead id="tabelaDetalhesResumoCabecalho"></thead>
-                <tbody id="tabelaDetalhesResumo">
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <!-- Preenchido pelo motor de julgamento (Script_Julgamento) -->
+          <div id="painelJulgamentoResumo" class="julg-painel"></div>
         </div>
 
         <!-- PAINEL DE AÇÕES LATERAIS -->
@@ -669,6 +603,8 @@
     </div>
 
     <!-- Importação dos módulos JavaScript separados -->
+    <!-- Motor de julgamento: o mesmo código do servidor (Julgamento.gs) -->
+    <script><?!= fonteMotorJulgamento(); ?></script>
     <?!= include('Script_Estado'); ?>
     <?!= include('Script_UI'); ?>
     <?!= include('Script_Dados'); ?>
@@ -679,6 +615,7 @@
     <?!= include('Script_Filtros'); ?>
     <?!= include('Script_Visual'); ?>
     <?!= include('Script_Cruzamento'); ?>
+    <?!= include('Script_Julgamento'); ?>
     <?!= include('Script_Romaneio'); ?>
     <?!= include('Script'); ?>
   </body>

@@ -313,6 +313,13 @@
                       msgUploadProgressoChegada.innerText = `✅ Processamento concluído! Foram agregadas ${resposta.linhasProcessadas} linhas novas.`;
                       msgUploadProgressoChegada.style.color = 'var(--emerald)';
                   }
+                  // Atualiza a Lista de Chegada da carga aberta (alertas na bipagem)
+                  if (cargaAtual) {
+                    const cargaPedida = cargaAtual;
+                    google.script.run.withSuccessHandler(function(recebidos) {
+                        if (cargaAtual === cargaPedida) setListaChegadaCarga = new Set(recebidos || []);
+                    }).getTagsRecebidasPorAba(cargaAtual);
+                  }
                   setTimeout(() => {
                     fecharModalUploadChegada();
                   }, 3000);

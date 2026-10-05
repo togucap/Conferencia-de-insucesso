@@ -10,7 +10,7 @@
   function cartaoBipe(opcoes) {
       // opcoes: { tipo, titulo, sub, aviso, etiqueta, produto, meta, tag, rodape }
       return `
-        <div class="bipe-card bipe-${opcoes.tipo}">
+        <div class="bipe-card bipe-${opcoes.tipo}"${opcoes.etiqueta ? ` data-etiqueta="${esc(opcoes.etiqueta)}"` : ''}>
           <div class="bipe-topo">
             <span class="bipe-icone">${opcoes.icone || ''}</span>
             <div class="bipe-cabecalho">
@@ -113,7 +113,7 @@
                     msgAlertaHistorico = `
                         <div class="bipe-aviso bipe-aviso-perigo">
                             ${icone('relogio')}
-                            <span>Atenção: este item foi recusado manualmente (avaria) na carga ${esc(historicoItem.ultimaCarga)}.</span>
+                            <span>Atenção: este item foi recusado manualmente na carga ${esc(historicoItem.ultimaCarga)}.</span>
                         </div>`;
                 } else if (historicoItem.ultimoStatus === "Falta Confirmada") {
                     msgAlertaHistorico = `
@@ -129,7 +129,7 @@
             let linhaPlanilhaIndex = -1;
             let celulasAlvo = null;
 
-            // Modo recusa (avaria): o volume bipado fica como "Recusado Manualmente"
+            // Modo recusa: o volume bipado fica como "Recusado Manualmente" (status cru, sem motivo)
             const modoRecusa = typeof modoRecusaAtivo === 'function' && modoRecusaAtivo();
             const STATUS_RECUSA = "Recusado Manualmente";
             let linhaConvertivel = null;   // já conferida (OK) e que pode passar a recusa
@@ -137,6 +137,19 @@
 
             if (!tabelaCorpo) return;
             const linhasTabela = tabelaCorpo.querySelectorAll('tr');
+
+            // Pedido da linha e alerta "consta na Lista de Chegada" (não deveria acontecer em bloqueados/recusados)
+            const pedidoDaLinha = cels => (indicePedidoFaturado !== -1 && cels[indicePedidoFaturado])
+                ? cels[indicePedidoFaturado].textContent.replace('MSPC', '').trim() : "";
+            const avisoListaChegada = (cels, texto) => {
+                const chave = pedidoDaLinha(cels) + "|" + codigoBipado;
+                if (!setListaChegadaCarga || !setListaChegadaCarga.has(chave)) return "";
+                return `
+                    <div class="bipe-aviso bipe-aviso-perigo">
+                        ${icone('alerta')}
+                        <span>${texto}</span>
+                    </div>`;
+            };
 
             for (let i = 0; i < linhasTabela.length; i++) {
               const celulas = linhasTabela[i].querySelectorAll('td');
@@ -149,12 +162,20 @@
                   if (aval === 'não receber' || aval === 'nao receber') isAvaliacaoLocalBloqueada = true;
                 }
 
-                if (isAvaliacaoLocalBloqueada || isReincidenteBloqueado) {
+                // O bloqueio é feito por NF/pedido: vale para todas as etiquetas do mesmo pedido
+                const pedLinha = pedidoDaLinha(celulas);
+                const isPedidoBloqueado = pedLinha !== "" && pedidosBloqueados.has(pedLinha);
+
+                if (isAvaliacaoLocalBloqueada || isReincidenteBloqueado || isPedidoBloqueado) {
                     const nomeProibido = indiceColunaProduto !== -1 ? celulas[indiceColunaProduto].textContent : "";
 
                     recusasInterceptadas.add(codigoBipado);
+                    if (pedLinha) pedidosBloqueados.add(pedLinha);
+                    linhasTabela[i].classList.add('linha-bloqueio-bipado', 'linha-pedido-bloqueado');
                     const dataHora = new Date().toLocaleString('pt-BR');
                     linhaPlanilhaIndex = linhasTabela[i].dataset.linhaOriginal;
+                    const avisoBloqLista = avisoListaChegada(celulas,
+                        'Este pedido está bloqueado e já consta na Lista de Chegada. Falha de processo: notifique.');
 
                     if (indiceStatus !== -1 && celulas[indiceStatus]) celulas[indiceStatus].textContent = "Bloqueado";
                     if (isReincidenteBloqueado && indiceColunaAvaliacao !== -1 && celulas[indiceColunaAvaliacao]) {
@@ -166,8 +187,10 @@
                     // Mostra o número E o nome do produto barrado juntos no mesmo cartão
                     if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                         tipo: 'bloqueio', icone: icone('bloqueio'),
-                        titulo: 'NÃO RECEBER', sub: 'Produto bloqueado pela auditoria. Separe o volume.',
-                        aviso: msgAlertaHistorico,
+                        titulo: 'NÃO RECEBER', sub: isPedidoBloqueado && !isAvaliacaoLocalBloqueada
+                            ? 'Outro volume deste pedido está bloqueado: o pedido inteiro é recusado. Separe o volume.'
+                            : 'Produto bloqueado pela auditoria. Separe o volume.',
+                        aviso: avisoBloqLista + msgAlertaHistorico,
                         etiqueta: codigoBipado, produto: nomeProibido
                     });
                     registrarLeitura(codigoBipado, 'bloqueio', nomeProibido);
@@ -242,9 +265,9 @@
               if (modoRecusa) {
                   if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                       tipo: 'recusa', icone: icone('bloqueio'),
-                      titulo: 'RECUSADO MANUALMENTE', sub: `Recusa por avaria registada às ${horaCurta()}. Separe o volume.`,
+                      titulo: 'RECUSADO MANUALMENTE', sub: `Recusa registada às ${horaCurta()}. Separe o volume.`,
                       tag: mspcVal !== "" ? '<span class="tag-mspc">Item MSPC</span>' : '',
-                      aviso: msgAlertaHistorico,
+                      aviso: (celulasAlvo ? avisoListaChegada(celulasAlvo, 'Este volume consta na Lista de Chegada e foi recusado. Verifique.') : '') + msgAlertaHistorico,
                       etiqueta: codigoBipado, produto: nomeProd, meta: meta.join(' · '),
                       rodape: rodape
                   });
@@ -274,8 +297,8 @@
               const nomeConv = (indiceColunaProduto !== -1 && alvo.celulas[indiceColunaProduto]) ? alvo.celulas[indiceColunaProduto].textContent.trim() : "";
               if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                   tipo: 'recusa', icone: icone('repetido'),
-                  titulo: 'ALTERADO PARA RECUSA', sub: 'Este volume já estava conferido e passou a Recusado Manualmente (avaria).',
-                  aviso: msgAlertaHistorico,
+                  titulo: 'ALTERADO PARA RECUSA', sub: 'Este volume já estava conferido e passou a Recusado Manualmente.',
+                  aviso: avisoListaChegada(alvo.celulas, 'Este volume consta na Lista de Chegada e foi recusado. Verifique.') + msgAlertaHistorico,
                   etiqueta: codigoBipado, produto: nomeConv
               });
               registrarLeitura(codigoBipado, 'recusa-convertida', nomeConv);
@@ -284,7 +307,7 @@
             } else if (encontrouJaConferido && jaRecusadoManual && !linhaConvertivel) {
               if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                   tipo: 'repetido', icone: icone('repetido'),
-                  titulo: 'Já recusado manualmente', sub: 'Este volume já foi bipado em modo recusa (avaria).',
+                  titulo: 'Já recusado manualmente', sub: 'Este volume já foi bipado em modo recusa.',
                   etiqueta: codigoBipado
               });
               registrarLeitura(codigoBipado, 'repetido');
@@ -298,10 +321,10 @@
             } else {
               const subDivergencia = isReincidenteBloqueado
                   ? 'Rejeição definitiva: o item não consta na malha e já tem histórico de bloqueio.'
-                  : 'Divergência de risco: código ausente na malha atual. Registado como fora da carga.';
+                  : 'Código ausente na malha atual. Registado como fora da malha; a procurar noutras cargas…';
               if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                   tipo: 'divergencia', icone: icone('alerta'),
-                  titulo: 'Fora da carga', sub: subDivergencia,
+                  titulo: 'Fora da malha', sub: subDivergencia,
                   aviso: msgAlertaHistorico,
                   etiqueta: codigoBipado
               });
@@ -310,6 +333,7 @@
               if (containerNaoEncontrados) containerNaoEncontrados.style.display = 'block';
               const li = document.createElement('li');
               const hora = new Date().toLocaleTimeString('pt-BR');
+              li.dataset.etiqueta = codigoBipado;
               li.innerHTML = `<strong>${esc(codigoBipado)}</strong> - Bipado às ${hora}`;
               if (listaNaoEncontrados) listaNaoEncontrados.prepend(li);
 
@@ -322,7 +346,14 @@
                   badgeErros.style.display = 'inline-block';
               }
 
-              google.script.run.registrarErroNaMesmaAba(cargaAtual, codigoBipado, dataHora);
+              // O servidor grava a divergência e procura a etiqueta nas outras cargas
+              google.script.run
+                  .withSuccessHandler(function(r) {
+                      if (r && r.outrasCargas && r.outrasCargas.length && typeof registarOutrasCargas === 'function') {
+                          registarOutrasCargas(r.etiqueta, r.outrasCargas);
+                      }
+                  })
+                  .registrarErroNaMesmaAba(cargaAtual, codigoBipado, dataHora);
             }
 
             inputEtiqueta.value = "";

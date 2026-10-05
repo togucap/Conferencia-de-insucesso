@@ -119,6 +119,7 @@ function getErrosDaCarga(nomeAba) {
     const idxStatus = cabecalho.indexOf("status conferência") !== -1 ? cabecalho.indexOf("status conferência") : cabecalho.indexOf("status conferencia");
     const idxMercadoria = cabecalho.indexOf("mercadoria código") !== -1 ? cabecalho.indexOf("mercadoria código") : cabecalho.indexOf("mercadoria codigo");
     const idxData = cabecalho.indexOf("data/hora conferência") !== -1 ? cabecalho.indexOf("data/hora conferência") : cabecalho.indexOf("data/hora conferencia");
+    const idxOutras = cabecalho.indexOf("outras cargas");
 
     if (idxStatus === -1 || idxMercadoria === -1) return [];
 
@@ -127,7 +128,8 @@ function getErrosDaCarga(nomeAba) {
       if (String(dados[i][idxStatus]).includes("Divergência") || String(dados[i][idxStatus]).includes("Não Encontrado")) {
         erros.push({
           codigo: dados[i][idxMercadoria],
-          hora: idxData !== -1 ? dados[i][idxData] : "Sessão Anterior"
+          hora: idxData !== -1 ? dados[i][idxData] : "Sessão Anterior",
+          outrasCargas: idxOutras !== -1 ? String(dados[i][idxOutras]).split(/\s*[,;]\s*/).filter(Boolean) : []
         });
       }
     }
@@ -149,7 +151,8 @@ function registrarBloqueio(nomeAba, rowIndex, dataHora) {
   _atualizarCelulaStatus(nomeAba, rowIndex, "Bloqueado", dataHora);
 }
 
-// Modo recusa (avaria): o volume foi bipado, mas separado e recusado pelo operador
+// Modo recusa: o volume foi bipado, mas separado e recusado pelo operador.
+// O status é "cru" (sem motivo); o motivo é escolhido mais tarde, ao gerar o romaneio.
 const STATUS_RECUSA_MANUAL = "Recusado Manualmente";
 function registrarRecusaManual(nomeAba, rowIndex, dataHora) {
   _atualizarCelulaStatus(nomeAba, rowIndex, STATUS_RECUSA_MANUAL, dataHora);
@@ -214,10 +217,26 @@ function registrarErroNaMesmaAba(nomeAba, codigoBipado, dataHora) {
      novaLinha.push(dataHora);
   }
 
+  // Fora da malha: procura a etiqueta nas outras cargas e regista onde ela existe
+  let outrasCargas = [];
+  try {
+    outrasCargas = _procurarEtiquetaEmOutrasCargas_(ss, codigoBipado, nomeAba);
+  } catch (e) {
+    console.warn("Procura em outras cargas falhou: " + e.message);
+  }
+  let idxOutras = cbLower.indexOf("outras cargas");
+  if (idxOutras === -1) {
+    idxOutras = Math.max(aba.getLastColumn(), novaLinha.length);
+    aba.getRange(1, idxOutras + 1).setValue("Outras Cargas").setFontWeight("bold");
+  }
+  while (novaLinha.length <= idxOutras) novaLinha.push("");
+  novaLinha[idxOutras] = outrasCargas.join(", ");
+
   aba.appendRow(novaLinha);
   
   const lastRow = aba.getLastRow();
   aba.getRange(lastRow, 1, 1, aba.getLastColumn()).setBackground("#fee2e2").setFontColor("#b91c1c");
+  return { etiqueta: String(codigoBipado), outrasCargas: outrasCargas };
 }
 
 function finalizarCargaStatus(nomeAba) {
@@ -999,18 +1018,24 @@ function _atualizarHistoricoNaFinalizacao(nomeAba, aba, setListaChegada) {
     let updates = [];
     let appends = [];
 
-    for (let i = 1; i < dados.length; i++) {
-        const merc = String(dados[i][idxMerc]).trim();
-        if (!merc || merc.toLowerCase() === "mercadoria código" || merc.toLowerCase() === "mercadoria codigo") continue;
+    // Mesmo motor do Web App: o bloqueio vale para o pedido inteiro (os volumes não bipados de um
+    // pedido bloqueado ficam no histórico como "Bloqueado", para o alerta de reincidente).
+    const julgamento = julgarCargaMotor_({
+        carga: nomeAba,
+        cabecalho: dados[0],
+        linhas: dados.slice(1).map(l => l.map(v => String(v))),
+        recebidosLista: Array.from(setListaChegada)
+    });
+    const SIT = julgamento.SIT;
 
-        const ped = idxPed !== -1 ? String(dados[i][idxPed]).trim() : "";
-        const chave = ped + "|" + merc;
-        const status = idxStatus !== -1 ? String(dados[i][idxStatus]).trim() : "";
-        const aval = idxAval !== -1 ? String(dados[i][idxAval]).trim().toLowerCase() : "";
+    for (const item of julgamento.itens) {
+        const merc = item.etiqueta;
+        if (!merc) continue;
+        const chave = item.pedido + "|" + merc;
 
-        let isBloqueado = (status === "Bloqueado" || aval === "não receber" || aval === "nao receber");
-        let isRecusaManual = (!isBloqueado && status === STATUS_RECUSA_MANUAL);
-        let isFalta = (!isBloqueado && !isRecusaManual && status !== "Conferido" && !status.includes("Divergência") && !setListaChegada.has(chave));
+        const isBloqueado = item.situacao === SIT.BLOQ_RECUSAR || item.situacao === SIT.BLOQ_IGNORADO;
+        const isRecusaManual = item.situacao === SIT.RECUSADO;
+        const isFalta = item.situacao === SIT.FALTA;
 
         if (isBloqueado || isRecusaManual || isFalta) {
             const novoStatus = isBloqueado ? "Bloqueado" : (isRecusaManual ? STATUS_RECUSA_MANUAL : "Falta Confirmada");

@@ -65,7 +65,7 @@
       btnGerar.disabled = false;
       const s = r.resumo || {};
       const partes = [
-        item('ok', r.pdf.nome, `${s.pedidos} pedidos · ${s.volumes} volumes · ${s.avarias} recusado(s) por avaria`, r.pdf.url, 'Abrir PDF')
+        item('ok', r.pdf.nome, `${s.pedidos} pedidos · ${s.volumes} volumes · ${s.faltaTotal} não encontrado(s) · ${s.parciais} parcial(is) · ${s.bloqueados} bloqueado(s) · ${s.recusados} recusado(s)`, r.pdf.url, 'Abrir PDF')
       ];
       (r.avisos || []).forEach(a => partes.push(item('aviso', 'Atenção', a)));
       if (r.modeloUrl) {

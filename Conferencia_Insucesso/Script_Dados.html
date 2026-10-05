@@ -64,11 +64,18 @@
       .withSuccessHandler(function(erros) {
         if (erros && erros.length > 0) {
           let msgErros = "";
+          const escD = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
           erros.forEach(e => {
-            msgErros += `<li><strong>${e.codigo}</strong> - Bipado às ${e.hora}</li>`;
+            msgErros += `<li data-etiqueta="${escD(String(e.codigo).trim())}"><strong>${escD(e.codigo)}</strong> - Bipado às ${escD(e.hora)}</li>`;
             divergenciasBipadas.add(String(e.codigo).trim());
           });
           if (listaNaoEncontrados && msgErros) listaNaoEncontrados.innerHTML = msgErros;
+          // Etiquetas fora da malha já encontradas noutras cargas
+          erros.forEach(e => {
+            if (e.outrasCargas && e.outrasCargas.length && typeof registarOutrasCargas === 'function') {
+              registarOutrasCargas(String(e.codigo).trim(), e.outrasCargas);
+            }
+          });
           if (containerNaoEncontrados && msgErros) {
               containerNaoEncontrados.style.display = 'block';
               
@@ -147,6 +154,9 @@
     mapaPedidosConferidos = {};
     recusasInterceptadas.clear();
     divergenciasBipadas.clear();
+    pedidosBloqueados.clear();
+    outrasCargasPorEtiqueta = {};
+    setListaChegadaCarga = new Set();
     linhasGlobais = [];
 
     // Linha de cabeçalho
@@ -169,6 +179,11 @@
         if (indicePedidoFaturado !== -1) {
             const numPed = String(row[indicePedidoFaturado]).trim();
             if (numPed) mapaPedidosTotal[numPed] = (mapaPedidosTotal[numPed] || 0) + 1;
+
+            // O bloqueio ("Não Receber") vale para o pedido inteiro
+            const aval = indiceColunaAvaliacao !== -1 ? String(row[indiceColunaAvaliacao]).trim().toLowerCase() : "";
+            const st = indiceStatus !== -1 ? String(row[indiceStatus]).trim() : "";
+            if (numPed && (aval === 'não receber' || aval === 'nao receber' || st === 'Bloqueado')) pedidosBloqueados.add(numPed);
         }
     }
 
@@ -241,13 +256,16 @@
       if (statusValue.includes("Divergência") || statusValue.includes("Não Encontrado")) {
           isForaCarga = true;
           tr.style.display = 'none'; 
-      } else if (avaliacaoValue === 'não receber' || avaliacaoValue === 'nao receber' || statusValue === 'Bloqueado') {
+      } else if (avaliacaoValue === 'não receber' || avaliacaoValue === 'nao receber' || statusValue === 'Bloqueado' || pedidosBloqueados.has(pedValue)) {
+          // Bloqueio por NF/pedido: todas as etiquetas do pedido ficam "Não receber"
+          tr.classList.add('linha-pedido-bloqueado');
           if (indiceColunaMercadoria !== -1) {
               recusasInterceptadas.add(String(row[indiceColunaMercadoria]).trim());
           }
+          if (statusValue === 'Bloqueado') tr.classList.add('linha-bloqueio-bipado');
       } else {
           totalItensCarga++;
-          // "Recusado Manualmente" (modo recusa/avaria) também foi bipado: conta no progresso
+          // "Recusado Manualmente" (modo recusa) também foi bipado: conta no progresso
           if (statusValue === "Conferido" || statusValue === "Recusado Manualmente") {
              tr.classList.add('linha-conferida');
              if (statusValue === "Recusado Manualmente") tr.classList.add('linha-recusada-manual');
@@ -285,6 +303,14 @@
     atualizarProgresso();
     carregarDivergenciasAnteriores(cargaAtual);
 
+    // Lista de Chegada da carga (para o alerta de bloqueado/recusado já na lista, na hora do bipe)
+    const cargaPedida = cargaAtual;
+    google.script.run
+      .withSuccessHandler(function(recebidos) {
+          if (cargaAtual === cargaPedida) setListaChegadaCarga = new Set(recebidos || []);
+      })
+      .getTagsRecebidasPorAba(cargaAtual);
+
     if (containerTabela) containerTabela.style.display = 'block';
     if (kpiContainer) kpiContainer.style.display = 'grid';
     if (containerProgresso) containerProgresso.style.display = 'block';
@@ -316,7 +342,7 @@
            continue;
         }
 
-        let isRecusar = false;
+        let isRecusar = linha.classList.contains('linha-pedido-bloqueado');
         if (indiceColunaAvaliacao !== -1 && tds[indiceColunaAvaliacao]) {
            const aval = tds[indiceColunaAvaliacao].textContent.trim().toLowerCase();
            if (aval === 'não receber' || aval === 'nao receber' || statusText === 'Bloqueado') isRecusar = true;
