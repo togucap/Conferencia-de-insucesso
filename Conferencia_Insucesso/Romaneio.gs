@@ -28,7 +28,7 @@ const ROMANEIO_CONFIG = {
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
   VERSAO_MODELO: 4,
   // Identifica o código do motor no resultado do Web App (para confirmar a versão publicada)
-  VERSAO_MOTOR: '2026-10-06b',
+  VERSAO_MOTOR: '2026-10-07',
   // Transportadora fixa (o campo no Web App fica travado)
   TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
@@ -41,6 +41,7 @@ const ROMANEIO_CONFIG = {
   // Altura mínima da área central, para as assinaturas ficarem no fundo da página
   ALTURA_CONTEUDO_PT: 480,
   FONTE_CONTEUDO_PT: 9,
+  COR_TEXTO: '#000000',
   // Opcional: tamanhos de letra a tentar para caber numa página antes de criar continuação
   // (vazio = a letra nunca muda)
   FONTES_AJUSTE_PT: [],
@@ -335,7 +336,8 @@ function criarPaginaContinuacao_(docId) {
     const reaplicar = p => {
       if (!p.getText().length) return;
       if (atributos) p.editAsText().setAttributes(0, p.getText().length - 1, atributos);
-      p.editAsText().setFontSize(tamanhoTexto).setBold(true);
+      // Cor explícita: o 1.º parágrafo da continuação herdava o branco da barra azul acima dele
+      p.editAsText().setFontSize(tamanhoTexto).setBold(true).setForegroundColor(ROMANEIO_CONFIG.COR_TEXTO);
     };
     const limite = ROMANEIO_CONFIG.CONTINUACAO_MAX_CARACTERES;
     let movido = null;
@@ -464,7 +466,8 @@ function preencherConteudoDoc_(corpo, linhas) {
     // Tamanho sempre explícito: sem ele o Docs herda o do parágrafo anterior (a linha em branco
     // mais baixa encolhia todas as linhas seguintes)
     const fonte = ROMANEIO_CONFIG.FONTE_CONTEUDO_PT;
-    p.editAsText().setFontSize(texto === '' ? fonte * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA : fonte).setBold(true);
+    p.editAsText().setFontSize(texto === '' ? fonte * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA : fonte)
+      .setBold(true).setForegroundColor(ROMANEIO_CONFIG.COR_TEXTO);
   });
   base.removeFromParent();
 }
