@@ -25,7 +25,7 @@ const ROMANEIO_CONFIG = {
   PASTA_ID: '',
   NOME_MODELO: 'Modelo_Romaneio_Devolucao (não apagar)',
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
-  VERSAO_MODELO: 3,
+  VERSAO_MODELO: 4,
   // Transportadora fixa (o campo no Web App fica travado)
   TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
@@ -37,6 +37,13 @@ const ROMANEIO_CONFIG = {
   COR_CINZA: '#a6a6a6',
   // Altura mínima da área central, para as assinaturas ficarem no fundo da página
   ALTURA_CONTEUDO_PT: 480,
+  // Ajuste à página: se o PDF passar de uma página, a letra da área central desce por estes
+  // tamanhos até caber. Se nem assim couber, fica a letra mais pequena (menos páginas) e o
+  // rodapé (Volumes, estados e assinaturas) vai inteiro para a página seguinte.
+  FONTE_CONTEUDO_PT: 9,
+  FONTES_AJUSTE_PT: [8.5, 8, 7.5, 7],
+  // Linha em branco entre categorias, em proporção da letra (mais baixa que uma linha de texto)
+  PROPORCAO_LINHA_VAZIA: 0.5,
   // Caixas de estado do volume: saem todas marcadas
   MARCAR_ESTADOS: true,
   ESTADOS: [
@@ -202,11 +209,108 @@ function gerarRomaneioPdf_(dados) {
     preencherConteudoDoc_(corpo, linhasConteudoRomaneio_(dados));
 
     doc.saveAndClose();
-    const pdf = copia.getAs('application/pdf').setName(nome + '.pdf');
+    const ajuste = ajustarRomaneioAPagina_(copia.getId());
+    const pdf = ajuste.pdf.setName(nome + '.pdf');
     const arquivo = pasta.createFile(pdf);
-    return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName(), avisos };
+    return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName(), avisos, paginas: ajuste.paginas, fonte: ajuste.fonte };
   } finally {
     try { copia.setTrashed(true); } catch (e) { console.warn('Não foi possível apagar a cópia temporária: ' + e.message); }
+  }
+}
+
+// ==========================================
+// AJUSTE À PÁGINA (medido no PDF exportado)
+// ==========================================
+
+/**
+ * Exporta o documento e, se passar de uma página, reduz a letra da área central até caber.
+ * Se nem com a letra mínima couber, mantém essa letra e põe o rodapé numa página nova (inteiro),
+ * mas só se isso não acrescentar uma página, ou seja, quando o rodapé estava partido.
+ * @return {{pdf: Blob, paginas: number|null, fonte: number}}
+ */
+function ajustarRomaneioAPagina_(docId) {
+  const C = ROMANEIO_CONFIG;
+  const exportar = () => {
+    const pdf = DriveApp.getFileById(docId).getAs('application/pdf');
+    return { pdf, paginas: contarPaginasPdf_(pdf) };
+  };
+
+  let r = exportar();
+  let fonte = C.FONTE_CONTEUDO_PT;
+  if (!r.paginas || r.paginas <= 1) return { pdf: r.pdf, paginas: r.paginas, fonte };
+
+  for (const tamanho of C.FONTES_AJUSTE_PT) {
+    if (!aplicarFonteConteudo_(docId, tamanho)) return { pdf: r.pdf, paginas: r.paginas, fonte };
+    fonte = tamanho;
+    r = exportar();
+    if (r.paginas && r.paginas <= 1) return { pdf: r.pdf, paginas: r.paginas, fonte };
+  }
+
+  // Várias páginas (já com a letra mínima): rodapé inteiro na página seguinte, se estava partido
+  if (!quebraAntesDoRodape_(docId, true)) return { pdf: r.pdf, paginas: r.paginas, fonte };
+  const comQuebra = exportar();
+  if (comQuebra.paginas && r.paginas && comQuebra.paginas <= r.paginas) {
+    return { pdf: comQuebra.pdf, paginas: comQuebra.paginas, fonte };
+  }
+  quebraAntesDoRodape_(docId, false);
+  return { pdf: exportar().pdf, paginas: r.paginas, fonte };
+}
+
+/** Número de páginas de um PDF (lê a árvore /Pages; null se não conseguir). */
+function contarPaginasPdf_(blob) {
+  try {
+    const texto = Utilities.newBlob(blob.getBytes()).getDataAsString('ISO-8859-1');
+    let maior = 0;
+    const reCount = /\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*?\/Type\s*\/Pages\b/g;
+    let m;
+    while ((m = reCount.exec(texto))) maior = Math.max(maior, Number(m[1] || m[2]));
+    if (maior) return maior;
+    const paginas = texto.match(/\/Type\s*\/Page(?![a-zA-Z])/g);
+    return paginas ? paginas.length : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Muda o tamanho da letra da área central (linhas em branco proporcionais). */
+function aplicarFonteConteudo_(docId, tamanho) {
+  try {
+    const doc = DocumentApp.openById(docId);
+    const celula = doc.getBody().getTables()[0].getRow(2).getCell(0);
+    for (let i = 0; i < celula.getNumChildren(); i++) {
+      const filho = celula.getChild(i);
+      if (filho.getType() !== DocumentApp.ElementType.PARAGRAPH) continue;
+      const texto = filho.asParagraph().editAsText();
+      if (!texto.getText().length) continue;
+      const vazia = !texto.getText().trim();
+      texto.setFontSize(vazia ? tamanho * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA : tamanho);
+    }
+    doc.saveAndClose();
+    return true;
+  } catch (e) {
+    console.warn('Ajuste da letra do romaneio falhou: ' + e.message);
+    return false;
+  }
+}
+
+/** Liga/desliga uma quebra de página entre a tabela do conteúdo e a do rodapé. */
+function quebraAntesDoRodape_(docId, ligar) {
+  try {
+    const doc = DocumentApp.openById(docId);
+    const corpo = doc.getBody();
+    if (ligar) {
+      const tabelas = corpo.getTables();
+      if (tabelas.length < 2) { doc.saveAndClose(); return false; }
+      corpo.insertPageBreak(corpo.getChildIndex(tabelas[0]) + 1);
+    } else {
+      const achado = corpo.findElement(DocumentApp.ElementType.PAGE_BREAK);
+      if (achado) achado.getElement().getParent().removeFromParent();
+    }
+    doc.saveAndClose();
+    return true;
+  } catch (e) {
+    console.warn('Quebra de página antes do rodapé falhou: ' + e.message);
+    return false;
   }
 }
 
@@ -229,6 +333,7 @@ function preencherConteudoDoc_(corpo, linhas) {
     p.setText(texto === '' ? ' ' : texto);
     // setText pode perder a formatação de caractere do marcador (negrito, fonte, tamanho)
     if (atributos) p.editAsText().setAttributes(0, p.getText().length - 1, atributos);
+    if (texto === '') p.editAsText().setFontSize(ROMANEIO_CONFIG.FONTE_CONTEUDO_PT * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA);
   });
   base.removeFromParent();
 }
@@ -422,6 +527,9 @@ function montarHtmlRomaneio_(dados, opcoes) {
   <tr style="height:${C.ALTURA_CONTEUDO_PT}pt;">
     <td colspan="4" style="${celula(tudo, 'vertical-align:top;padding:4pt 4pt;')}">${conteudo}</td>
   </tr>
+</table>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;${fonte}">
+  <colgroup>${col.map(w => `<col style="width:${w}">`).join('')}</colgroup>
   <tr>
     <td colspan="4" style="${celula(tudo, `background-color:${C.COR_CINZA};padding:1pt 4pt;`)}">${p('Volumes: ' + v('VOLUMES'), 'font-weight:bold;text-align:center;font-size:9pt;')}</td>
   </tr>
@@ -519,6 +627,13 @@ function reduzirParagrafosVazios_(corpo) {
   const antes = filhos.slice(0, primeiraTabela);
   if (antes.every(vazio)) apagarOuMinimizar(antes, antes[antes.length - 1]);
 
+  // Entre a tabela do conteúdo e a do rodapé o Docs exige um parágrafo: fica com 1 pt
+  const tabelas = filhos.map((f, i) => f.getType() === DocumentApp.ElementType.TABLE ? i : -1).filter(i => i >= 0);
+  if (tabelas.length > 1) {
+    const entre = filhos.slice(tabelas[0] + 1, tabelas[1]);
+    if (entre.length && entre.every(vazio)) apagarOuMinimizar(entre, entre[0]);
+  }
+
   let k = filhos.length;
   while (k > 0 && vazio(filhos[k - 1])) k--;
   const depois = filhos.slice(k);
@@ -527,19 +642,22 @@ function reduzirParagrafosVazios_(corpo) {
 
 // Larguras das colunas e alturas mínimas das linhas (a conversão do HTML nem sempre as respeita)
 const ROMANEIO_COLUNAS = [0.22, 0.23, 0.27, 0.28];
-const ROMANEIO_ALTURAS = { 0: 70, 2: ROMANEIO_CONFIG.ALTURA_CONTEUDO_PT, 6: 85 };
+// [tabela do cabeçalho e conteúdo, tabela do rodapé] -> {linha: altura mínima em pt}
+const ROMANEIO_ALTURAS = [{ 0: 70, 2: ROMANEIO_CONFIG.ALTURA_CONTEUDO_PT }, { 3: 85 }];
 
 function ajustarTabelaDoModelo_(corpo, larguraUtil) {
   const tabelas = corpo.getTables();
-  if (!tabelas.length) throw new Error('A conversão do HTML não gerou a tabela do romaneio.');
-  const tabela = tabelas[0];
-  try {
-    ROMANEIO_COLUNAS.forEach((f, i) => tabela.setColumnWidth(i, Math.round(larguraUtil * f)));
-  } catch (e) { console.warn('Larguras das colunas: ' + e.message); }
-  Object.keys(ROMANEIO_ALTURAS).forEach(i => {
+  if (tabelas.length < 2) throw new Error('A conversão do HTML não gerou as tabelas do romaneio.');
+  tabelas.slice(0, 2).forEach((tabela, t) => {
     try {
-      if (Number(i) < tabela.getNumRows()) tabela.getRow(Number(i)).setMinimumHeight(ROMANEIO_ALTURAS[i]);
-    } catch (e) { console.warn('Altura da linha ' + i + ': ' + e.message); }
+      ROMANEIO_COLUNAS.forEach((f, i) => tabela.setColumnWidth(i, Math.round(larguraUtil * f)));
+    } catch (e) { console.warn('Larguras das colunas: ' + e.message); }
+    const alturas = ROMANEIO_ALTURAS[t];
+    Object.keys(alturas).forEach(i => {
+      try {
+        if (Number(i) < tabela.getNumRows()) tabela.getRow(Number(i)).setMinimumHeight(alturas[i]);
+      } catch (e) { console.warn('Altura da linha ' + i + ': ' + e.message); }
+    });
   });
 }
 
