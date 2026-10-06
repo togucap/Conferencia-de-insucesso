@@ -26,6 +26,8 @@ const ROMANEIO_CONFIG = {
   NOME_MODELO: 'Modelo_Romaneio_Devolucao (não apagar)',
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
   VERSAO_MODELO: 4,
+  // Identifica o código do motor no resultado do Web App (para confirmar a versão publicada)
+  VERSAO_MOTOR: '2026-10-06 continuação',
   // Transportadora fixa (o campo no Web App fica travado)
   TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
@@ -152,6 +154,7 @@ function gerarRomaneioCarga(opcoes) {
   const resultado = {
     ok: true,
     pdf: { id: pdf.id, url: pdf.url, nome: pdf.nome },
+    diagnostico: { paginas: pdf.paginas, fonte: pdf.fonte, continuacao: !!pdf.continuacao, motor: ROMANEIO_CONFIG.VERSAO_MOTOR },
     resumo: dados.resumo,
     avisos: pdf.avisos,
     segundos: Math.round((Date.now() - inicio) / 100) / 10
@@ -197,13 +200,21 @@ function gerarRomaneioPdf_(dados) {
   const pasta = obterPastaRomaneios_();
   const modelo = obterModeloRomaneio_();
   const nome = nomeArquivoRomaneio_(dados);
+  const avisos = [];
 
-  const copia = modelo.makeCopy(nome + ' (temp)', pasta);
+  // Cópias "(temp)" que ficaram para trás em gerações anteriores (ex.: sem permissão para apagar)
+  const restos = limparTemporariosRomaneio_(pasta);
+  if (restos) avisos.push(restos);
+
+  // A cópia de trabalho fica no "O meu Drive" da conta que publica o Web App: lá pode sempre ser
+  // apagada (num drive partilhado, apagar exige o papel "Gestor de conteúdo").
+  let destinoTemp;
+  try { destinoTemp = DriveApp.getRootFolder(); } catch (e) { destinoTemp = pasta; }
+  const copia = modelo.makeCopy(nome + ' (temp)', destinoTemp);
   try {
     const doc = DocumentApp.openById(copia.getId());
     const corpo = doc.getBody();
 
-    const avisos = [];
     const avisoLogo = inserirLogo_(corpo);
     if (avisoLogo) avisos.push(avisoLogo);
 
@@ -215,10 +226,36 @@ function gerarRomaneioPdf_(dados) {
     const ajuste = ajustarRomaneioAPagina_(copia.getId());
     const pdf = ajuste.pdf.setName(nome + '.pdf');
     const arquivo = pasta.createFile(pdf);
-    return { id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName(), avisos, paginas: ajuste.paginas, fonte: ajuste.fonte };
+    return {
+      id: arquivo.getId(), url: arquivo.getUrl(), nome: arquivo.getName(), avisos,
+      paginas: ajuste.paginas, fonte: ajuste.fonte, continuacao: ajuste.continuacao
+    };
   } finally {
-    try { copia.setTrashed(true); } catch (e) { console.warn('Não foi possível apagar a cópia temporária: ' + e.message); }
+    try {
+      copia.setTrashed(true);
+    } catch (e) {
+      console.warn('Não foi possível apagar a cópia temporária: ' + e.message);
+      avisos.push('A cópia de trabalho "' + nome + ' (temp)" não pôde ser apagada (' + e.message + '). Pode apagá-la à mão.');
+    }
   }
+}
+
+/** Apaga cópias "(temp)" esquecidas na pasta dos romaneios. Devolve um aviso se alguma resistir. */
+function limparTemporariosRomaneio_(pasta) {
+  let falhas = 0;
+  try {
+    const arquivos = pasta.searchFiles("title contains '(temp)' and trashed = false");
+    while (arquivos.hasNext()) {
+      const f = arquivos.next();
+      if (!/ \(temp\)$/.test(f.getName())) continue;
+      try { f.setTrashed(true); } catch (e) { falhas++; }
+    }
+  } catch (e) {
+    return null;
+  }
+  return falhas
+    ? `Há ${falhas} cópia(s) "(temp)" antigas na pasta Romaneios que não puderam ser apagadas: a conta que publica o Web App precisa do papel "Gestor de conteúdo" no drive partilhado. Pode apagá-las à mão.`
+    : null;
 }
 
 // ==========================================

@@ -203,6 +203,12 @@
         item('ok', r.pdf.nome, `${s.volumes} volume(s) no romaneio · ${s.pedidos} pedidos na carga`, r.pdf.url, 'Abrir PDF')
       ];
       (r.avisos || []).forEach(a => partes.push(item('aviso', 'Atenção', a)));
+      const d = r.diagnostico;
+      if (d) {
+        const pags = d.paginas ? `${d.paginas} página(s)` : 'páginas não medidas';
+        partes.push(item('', 'Detalhes da geração',
+          `${pags} · letra ${d.fonte} pt · página de continuação: ${d.continuacao ? 'sim' : 'não'} · motor ${d.motor}`));
+      }
       if (r.modeloUrl) {
         partes.push(item('', 'Modelo no Google Docs', 'Ajustes feitos aqui valem para os próximos romaneios', r.modeloUrl, 'Abrir modelo'));
       }
