@@ -37,11 +37,14 @@ const ROMANEIO_CONFIG = {
   COR_CINZA: '#a6a6a6',
   // Altura mínima da área central, para as assinaturas ficarem no fundo da página
   ALTURA_CONTEUDO_PT: 480,
-  // Ajuste à página: se o PDF passar de uma página, a letra da área central desce por estes
-  // tamanhos até caber. Se nem assim couber, fica a letra mais pequena (menos páginas) e o
-  // rodapé (Volumes, estados e assinaturas) vai inteiro para a página seguinte.
   FONTE_CONTEUDO_PT: 9,
-  FONTES_AJUSTE_PT: [8.5, 8, 7.5, 7],
+  // Opcional: tamanhos de letra a tentar para caber numa página antes de criar continuação
+  // (vazio = a letra nunca muda)
+  FONTES_AJUSTE_PT: [],
+  // Rodapé (carimbo/assinaturas) partido entre páginas: a última categoria passa para uma página
+  // de continuação, junto com o rodapé. Uma categoria maior do que isto só passa o fim
+  // (cortado numa NF), para a continuação nunca ficar maior do que uma página.
+  CONTINUACAO_MAX_CARACTERES: 700,
   // Linha em branco entre categorias, em proporção da letra (mais baixa que uma linha de texto)
   PROPORCAO_LINHA_VAZIA: 0.5,
   // Caixas de estado do volume: saem todas marcadas
@@ -223,10 +226,14 @@ function gerarRomaneioPdf_(dados) {
 // ==========================================
 
 /**
- * Exporta o documento e, se passar de uma página, reduz a letra da área central até caber.
- * Se nem com a letra mínima couber, mantém essa letra e põe o rodapé numa página nova (inteiro),
- * mas só se isso não acrescentar uma página, ou seja, quando o rodapé estava partido.
- * @return {{pdf: Blob, paginas: number|null, fonte: number}}
+ * Exporta o documento e garante que o rodapé (Volumes, estados, carimbo e assinaturas) nunca
+ * sai partido entre duas páginas:
+ *  1. uma página: fica assim;
+ *  2. (opcional) letra menor da área central, se FONTES_AJUSTE_PT tiver tamanhos;
+ *  3. várias páginas: testa uma quebra antes do rodapé; se o número de páginas não aumenta,
+ *     o rodapé estava partido, e o fim do texto passa para uma página de continuação (com o
+ *     cabeçalho repetido) junto com o rodapé.
+ * @return {{pdf: Blob, paginas: number|null, fonte: number, continuacao: boolean}}
  */
 function ajustarRomaneioAPagina_(docId) {
   const C = ROMANEIO_CONFIG;
@@ -234,26 +241,98 @@ function ajustarRomaneioAPagina_(docId) {
     const pdf = DriveApp.getFileById(docId).getAs('application/pdf');
     return { pdf, paginas: contarPaginasPdf_(pdf) };
   };
+  const fim = (r, fonte, continuacao) => ({ pdf: r.pdf, paginas: r.paginas, fonte, continuacao: !!continuacao });
 
   let r = exportar();
   let fonte = C.FONTE_CONTEUDO_PT;
-  if (!r.paginas || r.paginas <= 1) return { pdf: r.pdf, paginas: r.paginas, fonte };
+  if (!r.paginas || r.paginas <= 1) return fim(r, fonte);
 
-  for (const tamanho of C.FONTES_AJUSTE_PT) {
-    if (!aplicarFonteConteudo_(docId, tamanho)) return { pdf: r.pdf, paginas: r.paginas, fonte };
+  for (const tamanho of (C.FONTES_AJUSTE_PT || [])) {
+    if (!aplicarFonteConteudo_(docId, tamanho)) break;
     fonte = tamanho;
     r = exportar();
-    if (r.paginas && r.paginas <= 1) return { pdf: r.pdf, paginas: r.paginas, fonte };
+    if (r.paginas && r.paginas <= 1) return fim(r, fonte);
   }
 
-  // Várias páginas (já com a letra mínima): rodapé inteiro na página seguinte, se estava partido
-  if (!quebraAntesDoRodape_(docId, true)) return { pdf: r.pdf, paginas: r.paginas, fonte };
+  // O rodapé está partido? Com uma quebra antes dele, se estava inteiro surge mais uma página.
+  if (!quebraAntesDoRodape_(docId, true)) return fim(r, fonte);
   const comQuebra = exportar();
-  if (comQuebra.paginas && r.paginas && comQuebra.paginas <= r.paginas) {
-    return { pdf: comQuebra.pdf, paginas: comQuebra.paginas, fonte };
-  }
   quebraAntesDoRodape_(docId, false);
-  return { pdf: exportar().pdf, paginas: r.paginas, fonte };
+  if (!comQuebra.paginas || comQuebra.paginas > r.paginas) return fim(r, fonte);
+
+  // Rodapé partido: parte do texto vai para a página seguinte, junto com o carimbo
+  if (!criarPaginaContinuacao_(docId)) return fim(comQuebra, fonte);
+  return fim(exportar(), fonte, true);
+}
+
+/**
+ * Passa o fim do texto da área central para uma tabela de continuação (cópia do cabeçalho do
+ * romaneio) numa página nova, logo antes do rodapé.
+ */
+function criarPaginaContinuacao_(docId) {
+  try {
+    const doc = DocumentApp.openById(docId);
+    const corpo = doc.getBody();
+    const tabelas = corpo.getTables();
+    if (tabelas.length < 2) { doc.saveAndClose(); return false; }
+    const tabela = tabelas[0];
+    const celula = tabela.getRow(2).getCell(0);
+
+    let ultimo = null;
+    for (let i = celula.getNumChildren() - 1; i >= 0; i--) {
+      const f = celula.getChild(i);
+      if (f.getType() === DocumentApp.ElementType.PARAGRAPH && f.asParagraph().getText().trim()) { ultimo = f.asParagraph(); break; }
+    }
+    if (!ultimo || celula.getChildIndex(ultimo) === 0) { doc.saveAndClose(); return false; }
+
+    const texto = ultimo.getText();
+    const atributos = atributosDeTexto_(ultimo);
+    const reaplicar = p => { if (atributos && p.getText().length) p.editAsText().setAttributes(0, p.getText().length - 1, atributos); };
+    const limite = ROMANEIO_CONFIG.CONTINUACAO_MAX_CARACTERES;
+    let movido = null;
+
+    if (texto.length > limite) {
+      // Categoria longa: corta numa fronteira ", NF " e passa só o fim
+      let pos = texto.indexOf(', NF ');
+      while (pos >= 0 && texto.length - pos > limite) pos = texto.indexOf(', NF ', pos + 1);
+      if (pos > 0) {
+        const doisPontos = texto.indexOf(':');
+        const titulo = doisPontos > 0 ? texto.slice(0, doisPontos) : '';
+        movido = (titulo ? titulo + ' (continuação): ' : '') + texto.slice(pos + 2);
+        ultimo.setText(texto.slice(0, pos));
+        reaplicar(ultimo);
+      }
+    }
+    if (movido === null) {
+      // Categoria inteira (e a linha em branco antes dela)
+      movido = texto;
+      const indice = celula.getChildIndex(ultimo);
+      ultimo.removeFromParent();
+      const anterior = indice > 0 ? celula.getChild(indice - 1) : null;
+      if (anterior && anterior.getType() === DocumentApp.ElementType.PARAGRAPH &&
+          !anterior.asParagraph().getText().trim() && celula.getNumChildren() > 1) {
+        anterior.removeFromParent();
+      }
+    }
+
+    // Tabela de continuação: mesmo cabeçalho, só com o texto movido
+    const continuacao = tabela.copy();
+    const celulaC = continuacao.getRow(2).getCell(0);
+    while (celulaC.getNumChildren() > 1) celulaC.getChild(celulaC.getNumChildren() - 1).removeFromParent();
+    const p0 = celulaC.getChild(0).asParagraph();
+    p0.setText(movido);
+    reaplicar(p0);
+
+    const indiceTabela = corpo.getChildIndex(tabela);
+    const quebra = corpo.insertPageBreak(indiceTabela + 1);
+    try { quebra.getParent().asParagraph().setSpacingBefore(0).setSpacingAfter(0); } catch (e) { /* sem ajuste */ }
+    corpo.insertTable(indiceTabela + 2, continuacao);
+    doc.saveAndClose();
+    return true;
+  } catch (e) {
+    console.warn('Página de continuação do romaneio falhou: ' + e.message);
+    return false;
+  }
 }
 
 /** Número de páginas de um PDF (lê a árvore /Pages; null se não conseguir). */
