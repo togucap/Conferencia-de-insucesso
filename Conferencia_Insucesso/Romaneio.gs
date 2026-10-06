@@ -23,11 +23,12 @@ const ROMANEIO_CONFIG = {
   LOGO_ID: '',
   // Opcional: ID de uma pasta para os PDFs, que substitui NOME_PASTA
   PASTA_ID: '',
-  NOME_MODELO: 'Modelo_Romaneio_Devolucao (não apagar)',
+  // O nome inclui a versão do modelo (ex.: "Modelo_Romaneio_Devolucao v4 (não apagar)")
+  NOME_MODELO: 'Modelo_Romaneio_Devolucao',
   // Suba este número quando o layout do HTML mudar: o modelo é recriado na próxima geração
   VERSAO_MODELO: 4,
   // Identifica o código do motor no resultado do Web App (para confirmar a versão publicada)
-  VERSAO_MOTOR: '2026-10-06 continuação',
+  VERSAO_MOTOR: '2026-10-06b',
   // Transportadora fixa (o campo no Web App fica travado)
   TRANSPORTADORA: 'GFL',
   // Página: 'A4' ou 'CARTA'
@@ -76,8 +77,9 @@ const ROMANEIO_CONFIG = {
   ],
   // Aba oculta com os motivos por NF e as notas "não pertencentes ao KaBuM" escritas à mão
   NOME_ABA_SELECOES: 'Romaneio_Selecoes',
+  // Cada versão do modelo tem a sua propriedade (ROMANEIO_MODELO_ID_V4...), para que duas versões
+  // do código publicadas ao mesmo tempo (ex.: links /dev e /exec) não recriem o modelo uma da outra
   PROP_MODELO: 'ROMANEIO_MODELO_ID',
-  PROP_VERSAO: 'ROMANEIO_MODELO_VERSAO',
   PROP_PASTA: 'ROMANEIO_PASTA_ID'
 };
 
@@ -160,7 +162,7 @@ function gerarRomaneioCarga(opcoes) {
     segundos: Math.round((Date.now() - inicio) / 100) / 10
   };
   try {
-    const modeloId = PropertiesService.getScriptProperties().getProperty(ROMANEIO_CONFIG.PROP_MODELO);
+    const modeloId = PropertiesService.getScriptProperties().getProperty(propModeloRomaneio_());
     if (modeloId) resultado.modeloUrl = 'https://docs.google.com/document/d/' + modeloId + '/edit';
   } catch (e) { /* sem modelo */ }
   return resultado;
@@ -169,11 +171,16 @@ function gerarRomaneioCarga(opcoes) {
 /** Apaga a referência ao modelo atual; o próximo romaneio cria um novo a partir do HTML. */
 function recriarModeloRomaneio() {
   const props = PropertiesService.getScriptProperties();
-  const antigo = props.getProperty(ROMANEIO_CONFIG.PROP_MODELO);
+  const antigo = props.getProperty(propModeloRomaneio_());
   if (antigo) {
-    try { DriveApp.getFileById(antigo).setName(ROMANEIO_CONFIG.NOME_MODELO + ' (substituído)'); } catch (e) { /* já não existe */ }
+    try { DriveApp.getFileById(antigo).setName(nomeModeloRomaneio_() + ' (substituído)'); } catch (e) { /* já não existe */ }
   }
-  props.deleteProperty(ROMANEIO_CONFIG.PROP_MODELO);
+  props.deleteProperty(propModeloRomaneio_());
+  // Garante que a procura por nome não volta a encontrar o modelo antigo
+  try {
+    const iguais = obterPastaRomaneios_().getFilesByName(nomeModeloRomaneio_());
+    while (iguais.hasNext()) iguais.next().setName(nomeModeloRomaneio_() + ' (substituído)');
+  } catch (e) { /* sem acesso */ }
   const modelo = obterModeloRomaneio_();
   const msg = 'Modelo do romaneio recriado: ' + modelo.getUrl();
   console.log(msg);
@@ -324,7 +331,12 @@ function criarPaginaContinuacao_(docId) {
 
     const texto = ultimo.getText();
     const atributos = atributosDeTexto_(ultimo);
-    const reaplicar = p => { if (atributos && p.getText().length) p.editAsText().setAttributes(0, p.getText().length - 1, atributos); };
+    const tamanhoTexto = ultimo.editAsText().getFontSize() || ROMANEIO_CONFIG.FONTE_CONTEUDO_PT;
+    const reaplicar = p => {
+      if (!p.getText().length) return;
+      if (atributos) p.editAsText().setAttributes(0, p.getText().length - 1, atributos);
+      p.editAsText().setFontSize(tamanhoTexto).setBold(true);
+    };
     const limite = ROMANEIO_CONFIG.CONTINUACAO_MAX_CARACTERES;
     let movido = null;
 
@@ -449,7 +461,10 @@ function preencherConteudoDoc_(corpo, linhas) {
     p.setText(texto === '' ? ' ' : texto);
     // setText pode perder a formatação de caractere do marcador (negrito, fonte, tamanho)
     if (atributos) p.editAsText().setAttributes(0, p.getText().length - 1, atributos);
-    if (texto === '') p.editAsText().setFontSize(ROMANEIO_CONFIG.FONTE_CONTEUDO_PT * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA);
+    // Tamanho sempre explícito: sem ele o Docs herda o do parágrafo anterior (a linha em branco
+    // mais baixa encolhia todas as linhas seguintes)
+    const fonte = ROMANEIO_CONFIG.FONTE_CONTEUDO_PT;
+    p.editAsText().setFontSize(texto === '' ? fonte * ROMANEIO_CONFIG.PROPORCAO_LINHA_VAZIA : fonte).setBold(true);
   });
   base.removeFromParent();
 }
@@ -678,30 +693,45 @@ function montarHtmlRomaneio_(dados, opcoes) {
 // MODELO NO GOOGLE DOCS
 // ==========================================
 
+function propModeloRomaneio_() { return ROMANEIO_CONFIG.PROP_MODELO + '_V' + ROMANEIO_CONFIG.VERSAO_MODELO; }
+function nomeModeloRomaneio_() { return ROMANEIO_CONFIG.NOME_MODELO + ' v' + ROMANEIO_CONFIG.VERSAO_MODELO + ' (não apagar)'; }
+
+/**
+ * Modelo desta versão: 1) pelo ID guardado; 2) pelo nome na pasta Romaneios (se a propriedade se
+ * perdeu); 3) só então cria um novo. Nunca mexe nos modelos de outras versões.
+ */
 function obterModeloRomaneio_() {
   const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty(ROMANEIO_CONFIG.PROP_MODELO);
-  const versao = props.getProperty(ROMANEIO_CONFIG.PROP_VERSAO);
-
-  if (id && versao === String(ROMANEIO_CONFIG.VERSAO_MODELO)) {
+  const chave = propModeloRomaneio_();
+  const id = props.getProperty(chave);
+  if (id) {
     try {
       const arquivo = DriveApp.getFileById(id);
       if (!arquivo.isTrashed()) return arquivo;
-    } catch (e) { /* apagado ou sem acesso: recria */ }
-  } else if (id) {
-    try { DriveApp.getFileById(id).setName(ROMANEIO_CONFIG.NOME_MODELO + ' (versão antiga)'); } catch (e) { /* ignora */ }
+    } catch (e) { /* apagado ou sem acesso: procura pelo nome */ }
   }
 
+  const pasta = obterPastaRomaneios_();
+  try {
+    const iguais = pasta.getFilesByName(nomeModeloRomaneio_());
+    while (iguais.hasNext()) {
+      const f = iguais.next();
+      if (!f.isTrashed() && f.getMimeType() === 'application/vnd.google-apps.document') {
+        props.setProperty(chave, f.getId());
+        return f;
+      }
+    }
+  } catch (e) { /* sem procura: cria */ }
+
   const arquivo = criarModeloRomaneio_();
-  props.setProperty(ROMANEIO_CONFIG.PROP_MODELO, arquivo.getId());
-  props.setProperty(ROMANEIO_CONFIG.PROP_VERSAO, String(ROMANEIO_CONFIG.VERSAO_MODELO));
+  props.setProperty(chave, arquivo.getId());
   return arquivo;
 }
 
 function criarModeloRomaneio_() {
   const pasta = obterPastaRomaneios_();
   const html = montarHtmlRomaneio_({}, { modo: 'modelo' });
-  const id = converterHtmlEmDoc_(html, ROMANEIO_CONFIG.NOME_MODELO, pasta.getId());
+  const id = converterHtmlEmDoc_(html, nomeModeloRomaneio_(), pasta.getId());
 
   const doc = DocumentApp.openById(id);
   const corpo = doc.getBody();

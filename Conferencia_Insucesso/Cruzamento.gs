@@ -1313,7 +1313,8 @@ function forcarPermissoes() {
     }],
     ['Google Docs (romaneio em PDF)', () => {
       // Abrir um documento exige a permissão "documents"; usa o modelo se já existir
-      const id = PropertiesService.getScriptProperties().getProperty('ROMANEIO_MODELO_ID');
+      const id = PropertiesService.getScriptProperties().getProperty(
+        typeof propModeloRomaneio_ === 'function' ? propModeloRomaneio_() : 'ROMANEIO_MODELO_ID');
       if (id) {
         try { return DocumentApp.openById(id).getName(); } catch (e) { if (!/not found|não encontrad|missing/i.test(e.message)) throw e; }
       }
