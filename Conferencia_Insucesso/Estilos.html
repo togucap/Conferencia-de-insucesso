@@ -943,6 +943,18 @@
   .cruz-numero span { font-size: 11px; color: var(--text-support); }
   .cruz-numero strong { font-size: 17px; color: var(--text-main) !important; font-variant-numeric: tabular-nums; }
 
+  .cruz-tracking {
+    display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+    background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);
+  }
+  .cruz-tracking-erro { border-color: var(--red-alert); }
+  .cruz-tracking-linha { font-size: 13px; color: var(--text-support); }
+  .cruz-tracking-linha strong { color: var(--text-main); }
+  .cruz-tracking-linha.perigo strong { color: var(--red-alert); }
+  .cruz-tracking-linha.erro { color: var(--red-alert); }
+  .cruz-tracking-linha summary { cursor: pointer; }
+  .cruz-tracking-nfs { display: block; margin: 4px 0 2px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; overflow-wrap: anywhere; }
+
   /* --- NFs sem dados no faturamento (painel da carga) --- */
   .pendentes-container { padding: 0; overflow: hidden; border-color: var(--brand-accent); }
   .badge-alerta { background-color: var(--brand-soft); color: var(--brand-accent); }

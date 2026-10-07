@@ -33,7 +33,7 @@
     const barra = el('cruzBarra');
     const mensagem = el('cruzMensagem');
     const aviso = el('cruzAviso');
-    const passos = [el('cruzPasso1'), el('cruzPasso2'), el('cruzPasso3'), el('cruzPasso4')];
+    const passos = [el('cruzPasso1'), el('cruzPasso2'), el('cruzPassoTracking'), el('cruzPasso3'), el('cruzPasso4')];
     const blocoResultado = el('cruzResultado');
     const blocoResumo = el('cruzResumo');
     const blocoNaoEncontradas = el('cruzNaoEncontradas');
@@ -280,8 +280,14 @@
       const feitos = st.relatoriosFeitos || 0;
       if (contagem) contagem.textContent = total ? `(${feitos} de ${total})` : '';
 
+      const trkTotal = st.trackingTotal || 0;
+      const trkFeitos = st.trackingFeitos || 0;
+      const contagemTrk = el('cruzContagemTracking');
+      if (contagemTrk) contagemTrk.textContent = trkTotal ? `(${trkFeitos} de ${trkTotal})` : '';
+
       let pct = 5;
-      if (st.fase === 'lendo') pct = 10 + (total ? Math.round(80 * feitos / total) : 0);
+      if (st.fase === 'lendo') pct = 10 + (total ? Math.round(60 * feitos / total) : 0);
+      if (st.fase === 'tracking') pct = 70 + (trkTotal ? Math.round(20 * trkFeitos / trkTotal) : 0);
       if (st.fase === 'montando') pct = 92;
       if (st.status === 'concluido') pct = 100;
       if (barra) {
@@ -289,14 +295,15 @@
         barra.style.backgroundColor = st.status === 'erro' ? 'var(--red-alert)' : (st.status === 'concluido' ? 'var(--emerald)' : '');
       }
 
-      if (st.status === 'concluido') marcarPassos(['feito', 'feito', 'feito', 'feito']);
+      if (st.status === 'concluido') marcarPassos(['feito', 'feito', 'feito', 'feito', 'feito']);
       else if (st.status === 'erro' || st.status === 'cancelado') {
-        const falhaEm = st.fase === 'montando' ? 2 : (total ? 1 : 0);
+        const falhaEm = st.fase === 'montando' ? 3 : (st.fase === 'tracking' ? 2 : (total ? 1 : 0));
         marcarPassos(passos.map((_, i) => i < falhaEm ? 'feito' : (i === falhaEm ? 'erro' : '')));
       }
-      else if (st.fase === 'montando') marcarPassos(['feito', 'feito', 'ativo', '']);
-      else if (st.fase === 'lendo') marcarPassos(['feito', 'ativo', '', '']);
-      else marcarPassos(['ativo', '', '', '']);
+      else if (st.fase === 'montando') marcarPassos(['feito', 'feito', 'feito', 'ativo', '']);
+      else if (st.fase === 'tracking') marcarPassos(['feito', 'feito', 'ativo', '', '']);
+      else if (st.fase === 'lendo') marcarPassos(['feito', 'ativo', '', '', '']);
+      else marcarPassos(['ativo', '', '', '', '']);
 
       if (mensagem) {
         mensagem.classList.toggle('erro', st.status === 'erro');
@@ -315,6 +322,24 @@
       if (btnAbrirCarga) btnAbrirCarga.style.display = (st.status === 'concluido' && st.resultado && st.resultado.aba) ? '' : 'none';
 
       renderizarResultado(st);
+    }
+
+    /** Resumo do tracking Intelipost (os sem tracking / sem devolução só aparecem aqui). */
+    function htmlTracking(t) {
+      if (t.erro && !t.pedidos) return `<div class="cruz-tracking cruz-tracking-erro"><strong>Tracking Intelipost</strong><span>${esc(t.erro)}</span></div>`;
+      const nfs = g => g.itens.map(x => x.nfs || x.pedido).join(', ') + (g.total > g.itens.length ? ` (+${g.total - g.itens.length})` : '');
+      const linha = (rotulo, g, classe) => g.total
+        ? `<details class="cruz-tracking-linha ${classe || ''}"><summary>${esc(rotulo)}: <strong>${g.total}</strong></summary><span class="cruz-tracking-nfs">NF ${esc(nfs(g))}</span></details>`
+        : `<div class="cruz-tracking-linha">${esc(rotulo)}: <strong>0</strong></div>`;
+      return `<div class="cruz-tracking">
+        <strong>Tracking Intelipost</strong>
+        <div class="cruz-tracking-linha">${t.pedidos} pedido(s) consultado(s) · ${t.encontrados} com tracking · ${t.planilhas} planilha(s) lida(s)</div>
+        ${linha('Fora do prazo de devolução, marcados "Não Receber"', t.naoReceber, 'perigo')}
+        ${linha('Recusa dentro da promessa ("Avaliação transportes")', t.recusas, 'perigo')}
+        ${linha('Sem tracking', t.semTracking)}
+        ${linha('Sem ocorrência de devolução', t.semDevolucao)}
+        ${t.erro ? `<div class="cruz-tracking-linha erro">${esc(t.erro)}</div>` : ''}
+      </div>`;
     }
 
     function renderizarResultado(st) {
@@ -336,6 +361,7 @@
       linhas.push(`<div>NFs encontradas: <strong>${r.encontradas}</strong> de ${r.totalNFs} · ${r.relatorios} relatório(s) verificado(s)${r.etapas > 1 ? ` em ${r.etapas} etapas` : ''}.</div>`);
       if (r.linhasSemProduto) linhas.push(`<div>${r.linhasSemProduto} linha(s) sem mercadoria e sem pedido foram ignoradas.</div>`);
       if (r.avisosRelatorios) linhas.push(`<div>${r.avisosRelatorios} relatório(s) com aviso ou erro de leitura.</div>`);
+      if (r.tracking) linhas.push(htmlTracking(r.tracking));
       if (blocoResumo) blocoResumo.innerHTML = linhas.join('');
 
       const falta = r.naoEncontradas || [];

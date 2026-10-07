@@ -288,10 +288,15 @@ function executarEtapaInterna_() {
   let concluidos = arquivos.length - pendentes.length;
   console.log(`▶️ Etapa ${etapa}: ${notas.size} NFs, ${arquivos.length} relatórios, ${pendentes.length} pendentes.`);
 
-  atualizarJobCruzamento_({
-    fase: 'lendo', etapa: etapa, relatoriosTotal: arquivos.length, relatoriosFeitos: concluidos,
-    mensagem: `A ler os relatórios de faturamento (${concluidos} de ${arquivos.length}).`
-  });
+  if (pendentes.length) {
+    atualizarJobCruzamento_({
+      fase: 'lendo', etapa: etapa, relatoriosTotal: arquivos.length, relatoriosFeitos: concluidos,
+      mensagem: `A ler os relatórios de faturamento (${concluidos} de ${arquivos.length}).`
+    });
+  } else {
+    // Relatórios já lidos: esta etapa continua o tracking ou monta a carga
+    atualizarJobCruzamento_({ etapa: etapa, relatoriosTotal: arquivos.length, relatoriosFeitos: concluidos });
+  }
 
   // 4. Processamento
   let pausado = false;
@@ -350,6 +355,33 @@ function executarEtapaInterna_() {
     return;
   }
 
+  // 4b. Tracking Intelipost: para os pedidos encontrados no faturamento, lê as ocorrências
+  //     nas planilhas do drive de tracking (também por etapas)
+  if (typeof TRACK_CONFIG !== 'undefined' && TRACK_CONFIG.ATIVO) {
+    const jobT = lerJobCruzamento_() || {};
+    if (!jobT.trackingConcluido) {
+      const pedidos = pedidosDoCacheCruzamento_(cacheRes, nTrazer);
+      if (pedidos.size) {
+        atualizarJobCruzamento_({ fase: 'tracking', relatoriosFeitos: concluidos,
+          mensagem: 'A ler o tracking Intelipost dos ' + pedidos.size + ' pedidos encontrados...' });
+        const t = etapaTracking_(ss, pedidos, prazo);
+        if (t.cancelado || cruzamentoCancelado_()) return finalizarLimpezaCruzamento_(ss);
+        if (t.pausado) {
+          SpreadsheetApp.flush();
+          agendarContinuacao_(2);
+          atualizarJobCruzamento_({ fase: 'tracking', trackingTotal: t.total, trackingFeitos: t.feitos,
+            mensagem: `Tracking: ${t.feitos} de ${t.total} planilhas lidas. A continuar na próxima etapa...` });
+          return;
+        }
+        atualizarJobCruzamento_({ trackingConcluido: true, trackingTotal: t.total, trackingFeitos: t.feitos,
+          trackingErro: t.erro || null });
+        if (t.trabalhou) feitosAgora++;
+      } else {
+        atualizarJobCruzamento_({ trackingConcluido: true, trackingTotal: 0, trackingFeitos: 0 });
+      }
+    }
+  }
+
   // 5. Montar a carga pode demorar: se esta etapa já trabalhou bastante,
   //    deixa para a próxima, que começa com o tempo todo livre.
   if (feitosAgora > 0 && Date.now() - inicio > 90 * 1000) {
@@ -379,6 +411,18 @@ function executarEtapaInterna_() {
     });
   }
 
+  // Tracking: "Avaliação" (Não Receber, prazo de devolução) e "Avaliação transportes" (Recusa).
+  // A referência do prazo é o momento da criação da base.
+  let tracking = null;
+  if (typeof TRACK_CONFIG !== 'undefined' && TRACK_CONFIG.ATIVO) {
+    try {
+      tracking = resumirTrackingParaJob_(aplicarTrackingNaMatriz_(ss, montagem.matriz, Date.now()), job);
+    } catch (e) {
+      console.error('Tracking não aplicado: ' + e.message);
+      tracking = { erro: 'O tracking não foi aplicado: ' + e.message };
+    }
+  }
+
   const resumo = calcularResumoCarga_(montagem.matriz);
   const criada = _criarAbaCarga(job.nomeCarga, montagem.matriz, { comoTexto: true });
   finalizarLimpezaCruzamento_(ss);
@@ -398,7 +442,8 @@ function executarEtapaInterna_() {
     linhasSemProduto: montagem.ignoradas,
     avisosRelatorios: avisos,
     relatorios: arquivos.length,
-    etapas: etapa
+    etapas: etapa,
+    tracking: tracking
   };
   atualizarJobCruzamento_({
     status: 'concluido', fase: 'concluido', fim: new Date().toISOString(), resultado: resultado,
@@ -407,6 +452,59 @@ function executarEtapaInterna_() {
 
   notificar_('Concluído', `Carga "${criada.aba}" criada com ${resultado.itens} itens.`, true);
   enviarEmailConclusao_(ss, resultado, lerJobCruzamento_());
+}
+
+/** Pedidos (Número do Pedido Faturado) dos itens encontrados no faturamento. */
+function pedidosDoCacheCruzamento_(cacheRes, nTrazer) {
+  const pedidos = new Set();
+  const idx = CRUZ_CONFIG.CABECALHOS_TRAZER.indexOf(CRUZ_CONFIG.COLUNA_PEDIDO);
+  const n = cacheRes.getLastRow() - 1;
+  if (idx < 0 || n < 1) return pedidos;
+  cacheRes.getRange(2, 2 + idx, n, 1).getValues().forEach(l => {
+    const p = limparPedidoTracking_(l[0]);
+    if (p) pedidos.add(p);
+  });
+  return pedidos;
+}
+
+/** Resumo do tracking com listas limitadas (o estado do job vive numa propriedade de ~9 KB). */
+function resumirTrackingParaJob_(t, job) {
+  const LIMITE = 120;
+  const cortar = lista => ({ total: lista.length, itens: lista.slice(0, LIMITE) });
+  return {
+    planilhas: job.trackingTotal || 0,
+    erro: job.trackingErro || null,
+    pedidos: t.pedidos,
+    encontrados: t.encontrados,
+    naoReceber: cortar(t.naoReceber),
+    recusas: cortar(t.recusas),
+    semTracking: cortar(t.semTracking),
+    semDevolucao: cortar(t.semDevolucao)
+  };
+}
+
+/** Linhas do tracking para o e-mail de conclusão (texto simples). */
+function textoTrackingEmail_(t) {
+  if (!t) return '';
+  if (t.erro && !t.pedidos) return 'TRACKING INTELIPOST: ' + t.erro;
+  const lista = g => g.itens.map(x => x.nfs || x.pedido).join(', ') + (g.total > g.itens.length ? ` (+${g.total - g.itens.length})` : '');
+  return [
+    'TRACKING INTELIPOST',
+    `Pedidos consultados: ${t.pedidos} · com tracking: ${t.encontrados} · planilhas lidas: ${t.planilhas}`,
+    `Fora do prazo de devolução (${TRACK_CONFIG.PRAZO_DEVOLUCAO_DIAS} dias), marcados "Não Receber": ${t.naoReceber.total}` + (t.naoReceber.total ? ' — NFs ' + lista(t.naoReceber) : ''),
+    `Recusas dentro da promessa de entrega ("Avaliação transportes" = Recusa): ${t.recusas.total}` + (t.recusas.total ? ' — NFs ' + lista(t.recusas) : ''),
+    t.semTracking.total ? `Sem tracking: ${t.semTracking.total} — NFs ${lista(t.semTracking)}` : '',
+    t.semDevolucao.total ? `Sem ocorrência de devolução: ${t.semDevolucao.total} — NFs ${lista(t.semDevolucao)}` : '',
+    t.erro ? 'Aviso: ' + t.erro : ''
+  ].filter(Boolean).join('\n');
+}
+
+/** Bloco HTML do tracking para o e-mail de conclusão. */
+function htmlTrackingEmail_(t) {
+  if (!t) return '';
+  const linhas = textoTrackingEmail_(t).split('\n').slice(1);
+  return `<div style="margin:12px 0;padding:12px 14px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;font-size:13px">` +
+    `<b>Tracking Intelipost</b><br>` + linhas.map(escaparHtmlEmail_).join('<br>') + `</div>`;
 }
 
 function falhar_(msg, extra) {
@@ -514,7 +612,9 @@ function limparNFsBase_(ss) {
 }
 
 function apagarCachesCruzamento_(ss) {
-  [CRUZ_ABA_ARQUIVOS, CRUZ_ABA_RESULTADOS, CRUZ_ABA_LISTA].forEach(nome => {
+  const caches = [CRUZ_ABA_ARQUIVOS, CRUZ_ABA_RESULTADOS, CRUZ_ABA_LISTA]
+    .concat(typeof nomesCacheTracking_ === 'function' ? nomesCacheTracking_() : []);
+  caches.forEach(nome => {
     const s = ss.getSheetByName(nome);
     if (s) ss.deleteSheet(s);
   });
@@ -1229,6 +1329,8 @@ function enviarEmailConclusao_(ss, r, job) {
     falta.length ? `NFs não encontradas (preencher manualmente; registadas na aba ${CRUZ_CONFIG.NOME_ABA_PENDENTES}): ${falta.join(', ')}` : '',
     `Relatórios de faturamento verificados: ${r.relatorios}` + (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : ''),
     '',
+    textoTrackingEmail_(r.tracking),
+    '',
     url ? `Planilha: ${url}` : ''
   ].filter((l, i, a) => l !== '' || (a[i - 1] !== '' && i > 0)).join('\n');
 
@@ -1256,6 +1358,7 @@ function enviarEmailConclusao_(ss, r, job) {
       : '') +
     `<p style="font-size:13px;color:#64748b">Relatórios de faturamento verificados: ${r.relatorios}` +
     (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : '') + `</p>` +
+    htmlTrackingEmail_(r.tracking) +
     (url ? `<p><a href="${escaparHtmlEmail_(url)}" style="display:inline-block;padding:10px 16px;background:#c2410c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">Abrir a carga na planilha</a></p>` : '') +
     `</div>`;
 
@@ -1310,6 +1413,13 @@ function forcarPermissoes() {
     ['Drive partilhado dos romaneios', () => {
       if (typeof ROMANEIO_CONFIG === 'undefined' || !ROMANEIO_CONFIG.DRIVE_ID) return 'não configurado';
       return DriveApp.getFolderById(ROMANEIO_CONFIG.DRIVE_ID).getName();
+    }],
+    ['Drive do tracking Intelipost', () => {
+      if (typeof TRACK_CONFIG === 'undefined' || !TRACK_CONFIG.ATIVO) return 'desativado';
+      const pasta = DriveApp.getFolderById(TRACK_CONFIG.PASTA_ID);
+      const it = pasta.getFilesByType(MimeType.GOOGLE_SHEETS);
+      let n = 0; while (it.hasNext() && n < 500) { it.next(); n++; }
+      return pasta.getName() + ' (' + n + ' planilha(s) na raiz)';
     }],
     ['Google Docs (romaneio em PDF)', () => {
       // Abrir um documento exige a permissão "documents"; usa o modelo se já existir
