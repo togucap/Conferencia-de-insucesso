@@ -171,6 +171,11 @@ function getErrosDaCarga(nomeAba) {
     const idxAval = cabecalho.indexOf("avaliação") !== -1 ? cabecalho.indexOf("avaliação") : cabecalho.indexOf("avaliacao");
 
     if (idxStatus === -1 || idxMercadoria === -1) return [];
+    // Motivo da avaliação do prazo (nota gravada pelo motor das etiquetas de outra carga)
+    let notas = [];
+    if (idxAval !== -1 && dados.length > 1) {
+      try { notas = aba.getRange(2, idxAval + 1, dados.length - 1, 1).getNotes(); } catch (e) { notas = []; }
+    }
 
     let erros = [];
     for (let i = 1; i < dados.length; i++) {
@@ -179,7 +184,8 @@ function getErrosDaCarga(nomeAba) {
           codigo: dados[i][idxMercadoria],
           hora: idxData !== -1 ? dados[i][idxData] : "Sessão Anterior",
           outrasCargas: idxOutras !== -1 ? String(dados[i][idxOutras]).split(/\s*[,;]\s*/).filter(Boolean) : [],
-          avaliacao: idxAval !== -1 ? String(dados[i][idxAval]).trim() : ""
+          avaliacao: idxAval !== -1 ? String(dados[i][idxAval]).trim() : "",
+          notaAvaliacao: notas[i - 1] ? String(notas[i - 1][0] || "") : ""
         });
       }
     }

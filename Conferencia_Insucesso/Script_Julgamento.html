@@ -174,7 +174,8 @@
         const span = document.createElement('span');
         span.className = 'outra-carga';
         span.textContent = ' · ' + texto;
-        li.appendChild(span);
+        // Na 1.ª linha do item, antes do resultado do prazo (se já estiver lá)
+        li.insertBefore(span, li.querySelector('.prazo-resultado, .prazo-status'));
       });
     }
     // Se o cartão do último bipe ainda é desta etiqueta, acrescenta o aviso
@@ -191,16 +192,19 @@
   // PRAZO DAS ETIQUETAS FORA DA MALHA QUE PERTENCEM A OUTRA CARGA (segundo plano)
   // O servidor (verificarPrazoForaDaMalha, em Tracking.gs) consulta o tracking do pedido da outra
   // carga e aplica os 35 dias a contar da criação desta carga. Fora do prazo: "Não Receber" na
-  // linha da divergência e alerta vermelho no painel "Divergências (fora da carga)".
+  // linha da divergência e alerta vermelho no painel "Divergências (fora da carga)"; dentro do
+  // prazo: "Receber". O resultado fica gravado na planilha: ao reabrir a carga não se consulta outra vez.
   // Uma chamada de cada vez (as etiquetas que chegam entretanto vão no lote seguinte).
   // --------------------------------------------------------------------------
   let prazoNaoReceber = {};      // etiqueta -> resultado do motor (fora do prazo)
+  let prazoAvaliado = {};        // etiqueta -> avaliação gravada ("Não Receber", "Receber", ...)
   const filaPrazo = new Set();
   let prazoEmCurso = false;
   let geracaoPrazo = 0;          // muda ao trocar de carga: respostas antigas são ignoradas
 
   function reiniciarPrazoForaDaMalha() {
     prazoNaoReceber = {};
+    prazoAvaliado = {};
     filaPrazo.clear();
     prazoEmCurso = false;
     geracaoPrazo++;
@@ -210,7 +214,7 @@
   function agendarVerificacaoPrazo(etiquetas) {
     (etiquetas || []).forEach(e => {
       e = String(e || '').trim();
-      if (!e || prazoNaoReceber[e]) return;
+      if (!e || prazoNaoReceber[e] || prazoAvaliado[e]) return;
       filaPrazo.add(e);
       marcarPrazoPendente(e, 'a verificar o prazo…', false);
     });
@@ -242,9 +246,10 @@
   function aplicarResultadoPrazo(r) {
     if (!r) return;
     (r.resultados || []).forEach(x => {
-      if (x.situacao === 'NAO_RECEBER') marcarDivergenciaNaoReceber(x.etiqueta, x, r.referencia);
-      else if (r.erro && x.situacao === 'SEM_TRACKING') marcarPrazoPendente(x.etiqueta, 'prazo não verificado (' + r.erro + ')', true);
-      else marcarPrazoPendente(x.etiqueta, '', false);   // dentro do prazo / sem tracking: nada a sinalizar
+      if (x.situacao === 'NAO_RECEBER') marcarDivergenciaNaoReceber(x.etiqueta, x);
+      else if (x.avaliacao) marcarDivergenciaReceber(x.etiqueta, x.avaliacao, x.nota);
+      else if (r.erro) marcarPrazoPendente(x.etiqueta, 'prazo não verificado (' + r.erro + ')', true);
+      else marcarPrazoPendente(x.etiqueta, '', false);
     });
   }
 
@@ -264,37 +269,52 @@
     });
   }
 
-  /** info: resultado do servidor (ou null quando vem da planilha, já marcado antes). */
-  function marcarDivergenciaNaoReceber(etiqueta, info, referencia) {
-    prazoNaoReceber[etiqueta] = info || { etiqueta };
-    let texto = 'NÃO RECEBER · fora do prazo de devolução';
-    if (info) {
-      texto += ` — NF ${info.nf || '-'} (pedido ${info.pedido || '-'}) da carga ${info.cargaOrigem || '-'}; ` +
-        `1.ª devolução em ${info.primeiraDevolucao || '-'}: ${info.dias} dias até à criação desta carga` + (referencia ? ` (${referencia})` : '') + '.';
-    }
+  /** Escreve a avaliação na linha (escondida) da divergência: o Detalhes/Excel leem-na de lá. */
+  function avaliacaoNaLinhaDivergencia(etiqueta, valor) {
+    if (!tabelaCorpo || indiceColunaMercadoria === -1 || indiceColunaAvaliacao === -1) return;
+    tabelaCorpo.querySelectorAll('tr.linha-divergencia').forEach(tr => {
+      const tds = tr.querySelectorAll('td');
+      if (tds[indiceColunaMercadoria] && tds[indiceColunaMercadoria].textContent.trim() === etiqueta && tds[indiceColunaAvaliacao]) {
+        tds[indiceColunaAvaliacao].textContent = valor;
+      }
+    });
+  }
+
+  /** Linha de resultado do prazo no item do painel (substitui o "a verificar…"). */
+  function textoPrazoNoItem(etiqueta, classe, texto) {
     itensDivergencia(etiqueta).forEach(li => {
       const pend = li.querySelector('.prazo-status');
       if (pend) pend.remove();
-      li.classList.add('divergencia-nao-receber');
-      let span = li.querySelector('.prazo-nao-receber');
-      if (!span) { span = document.createElement('span'); span.className = 'prazo-nao-receber'; li.appendChild(span); }
+      let span = li.querySelector('.prazo-resultado');
+      if (!span) { span = document.createElement('span'); li.appendChild(span); }
+      span.className = 'prazo-resultado ' + classe;
       span.textContent = texto;
     });
-    // Linha (escondida) da divergência na tabela: o Detalhes/Excel leem a Avaliação dela
-    if (tabelaCorpo && indiceColunaMercadoria !== -1 && indiceColunaAvaliacao !== -1) {
-      tabelaCorpo.querySelectorAll('tr.linha-divergencia').forEach(tr => {
-        const tds = tr.querySelectorAll('td');
-        if (tds[indiceColunaMercadoria] && tds[indiceColunaMercadoria].textContent.trim() === etiqueta && tds[indiceColunaAvaliacao]) {
-          tds[indiceColunaAvaliacao].textContent = 'Não Receber';
-        }
-      });
-    }
+  }
+
+  /** Dentro do prazo / sem devolução / sem tracking: fica marcado (verde) e não se consulta outra vez. */
+  function marcarDivergenciaReceber(etiqueta, valor, nota) {
+    prazoAvaliado[etiqueta] = valor;
+    const semTracking = /sem tracking/i.test(valor);
+    textoPrazoNoItem(etiqueta, semTracking ? 'prazo-receber-sem-tracking' : 'prazo-receber',
+      valor.toUpperCase() + (nota ? ' · ' + nota : ''));
+    avaliacaoNaLinhaDivergencia(etiqueta, valor);
+  }
+
+  /** info: resultado do servidor, ou {nota, cargaOrigem} quando vem da planilha (carga reaberta). */
+  function marcarDivergenciaNaoReceber(etiqueta, info) {
+    info = info || {};
+    prazoNaoReceber[etiqueta] = info;
+    prazoAvaliado[etiqueta] = 'Não Receber';
+    itensDivergencia(etiqueta).forEach(li => li.classList.add('divergencia-nao-receber'));
+    textoPrazoNoItem(etiqueta, 'prazo-nao-receber', 'NÃO RECEBER · ' + (info.nota || 'fora do prazo de devolução.'));
+    avaliacaoNaLinhaDivergencia(etiqueta, 'Não Receber');
     // Cartão do último bipe, se ainda for esta etiqueta
     const cartao = resultadoBipe ? resultadoBipe.querySelector('.bipe-card[data-etiqueta]') : null;
     if (cartao && cartao.dataset.etiqueta === etiqueta && !cartao.querySelector('.bipe-aviso-fora-prazo')) {
       const aviso = document.createElement('div');
       aviso.className = 'bipe-aviso bipe-aviso-perigo bipe-aviso-fora-prazo';
-      aviso.textContent = 'NÃO RECEBER: fora do prazo de devolução (carga ' + ((info && info.cargaOrigem) || '-') + '). Separe o volume.';
+      aviso.textContent = 'NÃO RECEBER: fora do prazo de devolução (carga ' + (info.cargaOrigem || '-') + '). Separe o volume.';
       cartao.appendChild(aviso);
     }
     atualizarDestaqueNaoReceber(true);

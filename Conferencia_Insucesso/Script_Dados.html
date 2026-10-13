@@ -73,10 +73,15 @@
             if (e.outrasCargas && e.outrasCargas.length && !e.avaliacao) aVerificar.push(String(e.codigo).trim());
           });
           if (listaNaoEncontrados && msgErros) listaNaoEncontrados.innerHTML = msgErros;
+          // Resultado do prazo já gravado na planilha (não se consulta o tracking outra vez)
           erros.forEach(e => {
-            const aval = String(e.avaliacao || '').toLowerCase();
-            if ((aval === 'não receber' || aval === 'nao receber') && typeof marcarDivergenciaNaoReceber === 'function') {
-              marcarDivergenciaNaoReceber(String(e.codigo).trim(), null);
+            const et = String(e.codigo).trim();
+            const aval = String(e.avaliacao || '').trim();
+            const avalMin = aval.toLowerCase();
+            if ((avalMin === 'não receber' || avalMin === 'nao receber') && typeof marcarDivergenciaNaoReceber === 'function') {
+              marcarDivergenciaNaoReceber(et, { nota: e.notaAvaliacao, cargaOrigem: (e.outrasCargas || [])[0] });
+            } else if (avalMin.indexOf('receber') === 0 && typeof marcarDivergenciaReceber === 'function') {
+              marcarDivergenciaReceber(et, aval, e.notaAvaliacao);
             }
           });
           if (aVerificar.length && selectAbas.dataset.finalizada !== 'true' && typeof agendarVerificacaoPrazo === 'function') {

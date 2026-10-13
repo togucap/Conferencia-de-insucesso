@@ -42,6 +42,9 @@ const TRACK_CONFIG = {
   ],
   COLUNA_AVALIACAO: 'Avaliação',
   VALOR_NAO_RECEBER: 'Não Receber',
+  // Motor de prazo das etiquetas fora da malha de outra carga: o resultado fica sempre gravado
+  VALOR_RECEBER: 'Receber',
+  VALOR_RECEBER_SEM_TRACKING: 'Receber (sem tracking)',
   COLUNA_AVALIACAO_TRANSPORTES: 'Avaliação transportes',
   VALOR_RECUSA: 'Recusa',
   // Brasil sem horário de verão: dia civil de São Paulo = UTC-3
@@ -340,8 +343,12 @@ function nomesCacheTracking_() {
 //     as etiquetas pedidas; resultado guardado em cache 20 min por pedido);
 //  3. aplica a mesma regra do cruzamento (primeira devolução há mais de PRAZO_DEVOLUCAO_DIAS dias),
 //     com a data de CRIAÇÃO DA CARGA ATUAL como referência.
-// Fora do prazo: a linha da divergência fica com "Avaliação" = "Não Receber" e o ecrã mostra o
-// alerta em vermelho. Dentro do prazo, sem tracking ou sem devolução: nada é gravado.
+// O resultado fica SEMPRE gravado na "Avaliação" da linha da divergência (com o motivo numa nota
+// da célula), para não voltar a consultar o tracking cada vez que a carga é aberta:
+//   fora do prazo           -> "Não Receber" (e alerta vermelho no ecrã)
+//   dentro do prazo / pedido sem devolução -> "Receber"
+//   pedido sem tracking     -> "Receber (sem tracking)"
+// Só não grava quando o drive de tracking não pôde ser lido (volta a tentar ao abrir a carga).
 
 const PRAZO_FORA_MALHA_CACHE_S = 20 * 60;
 
@@ -381,7 +388,7 @@ function verificarPrazoForaDaMalha(nomeAba, etiquetas) {
   catch (e) { saida.erro = 'Sem acesso ao drive de tracking: ' + e.message; }
 
   // 3. Decisão por etiqueta
-  const naoReceber = new Set();
+  const gravar = {};
   lista.forEach(et => {
     const occ = origem[et];
     const r = { etiqueta: et, situacao: 'SEM_OUTRA_CARGA', pedido: '', nf: '', cargaOrigem: '', dias: null, primeiraDevolucao: '', planilha: '' };
@@ -397,16 +404,54 @@ function verificarPrazoForaDaMalha(nomeAba, etiquetas) {
         if (r.situacao === 'SEM_TRACKING') Object.assign(r, atual, { situacao: d.semDevolucao ? 'SEM_DEVOLUCAO' : 'PRAZO_OK' });
       }
     }
-    if (r.situacao === 'NAO_RECEBER') naoReceber.add(et);
+    r.avaliacao = avaliacaoPrazo_(r, !!saida.erro);
+    if (r.avaliacao) {
+      r.nota = notaPrazo_(r, saida.referencia, saida.origemReferencia);
+      gravar[et] = { valor: r.avaliacao, nota: r.nota };
+    }
     saida.resultados.push(r);
   });
 
-  if (naoReceber.size) marcarDivergenciasNaoReceber_(aba, naoReceber);
+  if (Object.keys(gravar).length) marcarAvaliacaoDivergencias_(aba, gravar);
   return saida;
 }
 
-/** "Avaliação" = "Não Receber" nas linhas de divergência destas etiquetas (cria a coluna se faltar). */
-function marcarDivergenciasNaoReceber_(aba, etiquetas) {
+/** Valor da "Avaliação" para o resultado ('' = não gravar: sem outra carga ou tracking ilegível). */
+function avaliacaoPrazo_(r, erroTracking) {
+  const C = TRACK_CONFIG;
+  switch (r.situacao) {
+    case 'NAO_RECEBER': return C.VALOR_NAO_RECEBER;
+    case 'PRAZO_OK':
+    case 'SEM_DEVOLUCAO': return C.VALOR_RECEBER;
+    case 'SEM_TRACKING': return erroTracking ? '' : C.VALOR_RECEBER_SEM_TRACKING;
+    default: return '';
+  }
+}
+
+/** Motivo da avaliação (nota da célula e texto no ecrã). */
+function notaPrazo_(r, referencia, origemReferencia) {
+  const C = TRACK_CONFIG;
+  const origem = `NF ${r.nf || '-'} (pedido ${r.pedido || '-'}) da carga ${r.cargaOrigem || '-'}`;
+  const ref = `${referencia} (${origemReferencia})`;
+  switch (r.situacao) {
+    case 'NAO_RECEBER':
+      return `Fora do prazo: ${origem}; 1.ª devolução em ${r.primeiraDevolucao}, ${r.dias} dias até ${ref}. Limite: ${C.PRAZO_DEVOLUCAO_DIAS} dias.`;
+    case 'PRAZO_OK':
+      return `Dentro do prazo: ${origem}; 1.ª devolução em ${r.primeiraDevolucao}, ${r.dias} dias até ${ref}. Limite: ${C.PRAZO_DEVOLUCAO_DIAS} dias.`;
+    case 'SEM_DEVOLUCAO':
+      return `Dentro do prazo: ${origem}; o tracking não tem ocorrência de devolução.`;
+    case 'SEM_TRACKING':
+      return `${origem}: pedido sem tracking nas planilhas Intelipost; não há prazo a contar.`;
+    default:
+      return '';
+  }
+}
+
+/**
+ * Grava a "Avaliação" (e o motivo como nota) nas linhas de divergência destas etiquetas.
+ * @param {Object<string, {valor, nota}>} porEtiqueta
+ */
+function marcarAvaliacaoDivergencias_(aba, porEtiqueta) {
   const C = TRACK_CONFIG;
   const ultimaLinha = aba.getLastRow();
   if (ultimaLinha < 2) return 0;
@@ -427,9 +472,12 @@ function marcarDivergenciasNaoReceber_(aba, etiquetas) {
   let n = 0;
   for (let i = 1; i < dados.length; i++) {
     const status = String(dados[i][iStatus]);
-    if (!etiquetas.has(String(dados[i][iMerc]).trim())) continue;
+    const alvo = porEtiqueta[String(dados[i][iMerc]).trim()];
+    if (!alvo) continue;
     if (status.indexOf('Divergência') < 0 && status.indexOf('Não Encontrado') < 0) continue;
-    aba.getRange(i + 1, iAval + 1).setValue(C.VALOR_NAO_RECEBER).setFontWeight('bold');
+    const celula = aba.getRange(i + 1, iAval + 1);
+    celula.setValue(alvo.valor).setNote(alvo.nota || '');
+    if (alvo.valor === C.VALOR_NAO_RECEBER) celula.setFontWeight('bold');
     n++;
   }
   return n;

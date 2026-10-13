@@ -94,7 +94,8 @@ function julgarCargaMotor_(entrada) {
       vistasDiv.add(etiqueta);
       const avalDiv = val(l, iAval).toLowerCase();
       divergencias.push({ etiqueta, linha, outrasCargas: listaOutras(val(l, iOutras)),
-        naoReceber: avalDiv === 'não receber' || avalDiv === 'nao receber' });
+        naoReceber: avalDiv === 'não receber' || avalDiv === 'nao receber',
+        receber: avalDiv.indexOf('receber') === 0 ? val(l, iAval) : '' });
       return;
     }
 
@@ -176,6 +177,7 @@ function julgarCargaMotor_(entrada) {
   divergencias.forEach(d => {
     d.situacao = d.outrasCargas.length ? SIT.OUTRA_CARGA : SIT.FORA_MALHA;
     d.veredito = d.outrasCargas.length ? 'Fora da malha: pertence à carga ' + d.outrasCargas.join(', ') : 'Fora da malha';
+    if (!d.naoReceber && d.receber) d.veredito += ' · prazo verificado: ' + d.receber;
     if (d.naoReceber) d.veredito = 'Não receber: fora do prazo de devolução' + (d.outrasCargas.length ? ' (carga ' + d.outrasCargas.join(', ') + ')' : '');
   });
 
