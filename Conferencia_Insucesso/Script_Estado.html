@@ -137,6 +137,52 @@
       .obterHistoricoEventosFrontend();
   });
 
+  // A lista vem do servidor e muda quando alguém finaliza/reabre uma carga (neste ou noutro PC):
+  // é pedida de novo depois de finalizar, reabrir e voltar, e sempre que o seletor é aberto.
+  function atualizarListaCargas() {
+    google.script.run
+      .withSuccessHandler(preencherSelectAbas)
+      .withFailureHandler(function() { /* mantém a lista anterior */ })
+      .getAbasPlanilha();
+  }
+  window.atualizarListaCargas = atualizarListaCargas;
+
+  // Carga finalizada aberta para consulta: sem bipes, sem modo recusa, sem botão Finalizar
+  function definirSomenteLeitura(ligar) {
+    ligar = !!ligar;
+    // Primeiro desliga o modo recusa (ele também mexe no placeholder do campo de bipe)
+    if (ligar && typeof definirModoRecusa === 'function') definirModoRecusa(false);
+    document.body.classList.toggle('carga-somente-leitura', ligar);
+    const banner = document.getElementById('bannerSomenteLeitura');
+    if (banner) banner.hidden = !(ligar && cargaAtual);
+    const campo = document.getElementById('inputEtiqueta');
+    if (campo) {
+      campo.disabled = ligar;
+      campo.placeholder = ligar ? 'Carga finalizada: somente leitura' : 'Bipe ou digite a etiqueta';
+    }
+    if (ligar) {
+      const btnFin = document.getElementById('btnFinalizarAuditoria');
+      if (btnFin) btnFin.style.display = 'none';
+    }
+  }
+  window.definirSomenteLeitura = definirSomenteLeitura;
+
+  /** Estado finalizada/aberta da carga selecionada: atualiza o seletor, o rótulo e o modo de leitura. */
+  function definirEstadoCargaAtual(finalizada) {
+    const input = document.getElementById('selectAbas');
+    const label = document.getElementById('labelCargaSelecionada');
+    if (input) input.dataset.finalizada = finalizada ? 'true' : 'false';
+    if (label && input && input.value) {
+      label.innerHTML = finalizada
+        ? `${input.value} <span style="color: var(--emerald); font-size: 12px; margin-left: 8px;">(Concluída)</span>`
+        : `${input.value} <span style="color: var(--brand-accent); font-size: 12px; margin-left: 8px;">(Em Aberto)</span>`;
+    }
+    const btnFin = document.getElementById('btnFinalizarAuditoria');
+    if (btnFin && cargaAtual) btnFin.style.display = finalizada ? 'none' : 'block';
+    definirSomenteLeitura(finalizada);
+  }
+  window.definirEstadoCargaAtual = definirEstadoCargaAtual;
+
   function preencherSelectAbas(abas) {
     if (statusMensagem) statusMensagem.innerText = "";
     
@@ -200,6 +246,8 @@
           dropdown.classList.toggle('active');
           const content = document.getElementById('conteudoDropdownCarga');
           content.style.display = dropdown.classList.contains('active') ? 'block' : 'none';
+          // Mostra já a lista que tem e pede a atual (outros PCs podem ter finalizado/reaberto cargas)
+          if (dropdown.classList.contains('active')) atualizarListaCargas();
       } 
       else if (e.target.closest('.carga-item')) {
           const item = e.target.closest('.carga-item');

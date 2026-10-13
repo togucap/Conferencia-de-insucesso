@@ -628,6 +628,31 @@
   #listaNaoEncontrados li { color: var(--text-support); padding: 8px 0; border-bottom: 1px solid var(--border-color); font-size: 13px; }
   #listaNaoEncontrados li:last-child { border-bottom: 0; }
   #listaNaoEncontrados li strong { color: var(--violet); font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+  /* Prazo das etiquetas de outra carga (motor em segundo plano) */
+  .prazo-pendente { color: var(--text-support); font-style: italic; }
+  .prazo-erro { color: var(--text-support); }
+  #listaNaoEncontrados li.divergencia-nao-receber {
+    color: var(--red-alert); background: rgba(239, 68, 68, 0.10); border-left: 4px solid var(--red-alert);
+    padding: 8px 10px; margin: 4px 0; border-radius: 6px;
+  }
+  #listaNaoEncontrados li.divergencia-nao-receber strong { color: var(--red-alert); }
+  .prazo-nao-receber { display: block; margin-top: 4px; font-weight: 700; letter-spacing: 0.02em; }
+  .erro-container.tem-nao-receber { border-color: var(--red-alert); box-shadow: 0 0 0 1px var(--red-alert); }
+  .erro-container.tem-nao-receber .erro-header .card-title { color: var(--red-alert); }
+  .badge-contador.badge-nao-receber { background: var(--red-alert); color: #ffffff; }
+
+  /* Carga finalizada aberta só para consulta */
+  .banner-somente-leitura {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; padding: 12px 16px;
+    border: 1px solid var(--emerald); border-radius: 10px; background: rgba(16, 185, 129, 0.10); color: var(--text-main); font-size: 14px;
+  }
+  .banner-somente-leitura[hidden] { display: none; }
+  .banner-somente-leitura .icon { width: 20px; height: 20px; color: var(--emerald); flex: 0 0 auto; }
+  .banner-somente-leitura span { flex: 1 1 260px; }
+  .banner-somente-leitura .btn-secundario { margin-left: auto; }
+  body.carga-somente-leitura #barraModoRecusa { opacity: 0.45; pointer-events: none; }
+  body.carga-somente-leitura #inputEtiqueta { cursor: not-allowed; }
+  body.carga-somente-leitura .campo-bipe { opacity: 0.55; border-color: var(--border-color); box-shadow: none; }
 
   /* ============================================================================
      TABELA DA CARGA

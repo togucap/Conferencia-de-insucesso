@@ -38,14 +38,33 @@
   // Os números vêm do motor de julgamento (Julgamento.gs), o mesmo usado pelo Excel e pelo romaneio.
   function mostrarResumoFinal(tagsSincronizadasSet = null) {
       const forcados = tagsSincronizadasSet ? Array.from(tagsSincronizadasSet) : null;
+      const cargaDoResumo = cargaAtual;
       obterJulgamentoAtual(function(j) {
+          if (cargaAtual !== cargaDoResumo) return;   // o operador já mudou de carga
           const porcentagem = totalItensCarga === 0 ? 0 : Math.round((itensConferidosCarga / totalItensCarga) * 100);
           if (resumoTaxaConclusao) resumoTaxaConclusao.innerText = porcentagem + '%';
           if (resumoItensAuditados) resumoItensAuditados.innerText = itensConferidosCarga + ' / ' + totalItensCarga;
           renderizarPainelJulgamento(document.getElementById('painelJulgamentoResumo'), j);
           if (modalResumoFinal) modalResumoFinal.style.display = 'flex';
+          // Tira o foco do campo de bipe: o leitor não pode continuar a gravar com o resumo aberto
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          const titulo = document.getElementById('tituloResumoFinal');
+          if (titulo) titulo.focus();
       }, forcados);
   }
+
+  // O Enter/espaço do leitor de código de barras nunca "clica" num botão do resumo nem da
+  // confirmação de reabertura: só o rato/toque.
+  ['modalResumoFinal', 'modalReabrir'].forEach(function(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('keydown', function(e) {
+          if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.tagName === 'BUTTON') {
+              e.preventDefault();
+              e.stopPropagation();
+          }
+      }, true);
+  });
 
   // --- BOTÕES DE AÇÃO (FINALIZAÇÃO E NAVEGAÇÃO) ---
   if (btnFinalizarAuditoria) {
@@ -65,13 +84,7 @@
       btnConfirmarFinalizacao.addEventListener('click', function() {
           if (modalConfirmacao) modalConfirmacao.style.display = 'none';
           
-          if (selectAbas) {
-              selectAbas.dataset.finalizada = 'true';
-              const label = document.getElementById('labelCargaSelecionada');
-              if (label) {
-                  label.innerHTML = `${selectAbas.value} <span style="color: var(--emerald); font-size: 12px; margin-left: 8px;">(Concluída)</span>`;
-              }
-          }
+          if (typeof definirEstadoCargaAtual === 'function') definirEstadoCargaAtual(true);
           
           if (typeof mostrarLoader === 'function') mostrarLoader("A finalizar auditoria e a consolidar cruzamentos de estoque.\nIsto pode demorar alguns segundos...");
           if (statusMensagem) statusMensagem.innerText = "A finalizar auditoria e a consolidar cruzamentos de estoque. Aguarde...";
@@ -80,6 +93,7 @@
               .withSuccessHandler(function(recebidosArr) {
                   if (typeof esconderLoader === 'function') esconderLoader();
                   if (statusMensagem) statusMensagem.innerText = "";
+                  if (typeof atualizarListaCargas === 'function') atualizarListaCargas();
                   mostrarResumoFinal(new Set(recebidosArr));
               })
               .withFailureHandler(function(erro) {
@@ -91,25 +105,51 @@
       });
   }
 
+  // "Reabrir Conferência" muda o estado para todos: pede confirmação (e fica no Log_Cargas)
+  const modalReabrir = document.getElementById('modalReabrir');
   if (btnContinuarAuditoria) {
       btnContinuarAuditoria.addEventListener('click', function() {
+          if (!cargaAtual || !modalReabrir) return;
+          const alvo = document.getElementById('textoCargaReabrir');
+          if (alvo) alvo.textContent = cargaAtual;
+          modalReabrir.style.display = 'flex';
+          const cancelar = document.getElementById('btnCancelarReabrir');
+          if (cancelar) cancelar.focus();
+      });
+  }
+
+  const btnCancelarReabrir = document.getElementById('btnCancelarReabrir');
+  if (btnCancelarReabrir) {
+      btnCancelarReabrir.addEventListener('click', function() {
+          if (modalReabrir) modalReabrir.style.display = 'none';
+      });
+  }
+
+  const btnConfirmarReabrir = document.getElementById('btnConfirmarReabrir');
+  if (btnConfirmarReabrir) {
+      btnConfirmarReabrir.addEventListener('click', function() {
+          if (modalReabrir) modalReabrir.style.display = 'none';
           if (!cargaAtual) return;
-          
-          if (selectAbas) {
-              selectAbas.dataset.finalizada = 'false';
-              const label = document.getElementById('labelCargaSelecionada');
-              if (label) {
-                  label.innerHTML = `${selectAbas.value} <span style="color: var(--brand-accent); font-size: 12px; margin-left: 8px;">(Em Aberto)</span>`;
-              }
-          }
-          
-          // ====================================================================
-          // RESTAURAÇÃO: Faz o botão "Finalizar" voltar a aparecer no cabeçalho
-          // ====================================================================
-          if (btnFinalizarAuditoria) btnFinalizarAuditoria.style.display = 'block';
-          
+          if (typeof definirEstadoCargaAtual === 'function') definirEstadoCargaAtual(false);
           if (modalResumoFinal) modalResumoFinal.style.display = 'none';
-          google.script.run.reabrirCargaStatus(cargaAtual);
+          google.script.run
+              .withSuccessHandler(function() { if (typeof atualizarListaCargas === 'function') atualizarListaCargas(); })
+              .reabrirCargaStatus(cargaAtual, 'resumo: Reabrir Conferência (confirmado)');
+      });
+  }
+
+  // Consultar uma carga finalizada sem a reabrir
+  const btnVerSomenteLeitura = document.getElementById('btnVerSomenteLeitura');
+  if (btnVerSomenteLeitura) {
+      btnVerSomenteLeitura.addEventListener('click', function() {
+          if (modalResumoFinal) modalResumoFinal.style.display = 'none';
+          if (typeof definirEstadoCargaAtual === 'function') definirEstadoCargaAtual(true);
+      });
+  }
+  const btnVerResumoSomenteLeitura = document.getElementById('btnVerResumoSomenteLeitura');
+  if (btnVerResumoSomenteLeitura) {
+      btnVerResumoSomenteLeitura.addEventListener('click', function() {
+          if (cargaAtual) mostrarResumoFinal();
       });
   }
 
@@ -133,6 +173,9 @@
           if (statusMensagem) statusMensagem.innerText = "";
           
           cargaAtual = "";
+          if (typeof definirSomenteLeitura === 'function') definirSomenteLeitura(false);
+          if (typeof reiniciarPrazoForaDaMalha === 'function') reiniciarPrazoForaDaMalha();
+          if (typeof atualizarListaCargas === 'function') atualizarListaCargas();
           
           if (selectAbas) {
               selectAbas.value = "";

@@ -160,6 +160,13 @@
 
         <!-- Barra de ferramentas: modo de trabalho + filtros -->
         <div class="barra-ferramentas">
+          <!-- Carga finalizada aberta só para consulta: bipes bloqueados -->
+          <div id="bannerSomenteLeitura" class="banner-somente-leitura" role="status" hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+            <span><strong>Carga finalizada · somente leitura.</strong> Os bipes estão bloqueados. Para voltar a conferir, reabra a conferência no resumo.</span>
+            <button type="button" id="btnVerResumoSomenteLeitura" class="btn-secundario">Ver resumo</button>
+          </div>
+
           <div class="view-switch-container" id="containerSwitchVisao" style="display: none;">
             <label class="segmented" title="Alternar entre Tabela e Bipar">
               <input type="checkbox" id="switchVisao" class="segmented-input">
@@ -315,7 +322,7 @@
       <div class="resumo-layout">
 
         <div class="modal-content card-container resumo-principal">
-          <h2 class="resumo-titulo">Conferência finalizada</h2>
+          <h2 class="resumo-titulo" id="tituloResumoFinal" tabindex="-1">Conferência finalizada</h2>
           <p class="resumo-descricao">Esta carga foi marcada como concluída. Abaixo está o resumo da operação.</p>
 
           <div class="micro-grid micro-grid-compacto">
@@ -339,6 +346,9 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 Exportar Relatório
             </button>
+            <button type="button" id="btnVerSomenteLeitura" class="btn-secundario btn-bloco">
+                Ver carga (somente leitura)
+            </button>
             <button type="button" id="btnContinuarAuditoria" class="btn-secundario btn-bloco">
                 Reabrir Conferência
             </button>
@@ -358,6 +368,18 @@
         <div class="dialogo-botoes">
           <button type="button" id="btnCancelarFinalizacao" class="btn-fantasma">Cancelar</button>
           <button type="button" id="btnConfirmarFinalizacao" class="btn-brand">Sim, finalizar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmação de reabertura (o Enter do leitor não confirma: só o clique) -->
+    <div id="modalReabrir" class="modal-overlay modal-z3" style="display: none;">
+      <div class="modal-content card-container modal-dialogo" tabindex="-1">
+        <h2 class="dialogo-titulo">Reabrir a conferência?</h2>
+        <p class="dialogo-texto">A carga <strong id="textoCargaReabrir"></strong> deixa de estar <strong>FINALIZADA</strong> para todos os utilizadores e volta a aceitar bipes.<br><br>Para apenas consultar, use <strong>Ver carga (somente leitura)</strong>.</p>
+        <div class="dialogo-botoes">
+          <button type="button" id="btnCancelarReabrir" class="btn-fantasma">Cancelar</button>
+          <button type="button" id="btnConfirmarReabrir" class="btn-brand">Sim, reabrir</button>
         </div>
       </div>
     </div>

@@ -328,3 +328,154 @@ function aplicarTrackingNaMatriz_(ss, matriz, hojeMs) {
 function nomesCacheTracking_() {
   return [TRACK_ABA_ARQUIVOS, TRACK_ABA_RESULTADOS];
 }
+
+// ==========================================
+// PRAZO DAS ETIQUETAS FORA DA MALHA QUE PERTENCEM A OUTRA CARGA
+// ==========================================
+// Uma mercadoria prometida numa carga passada (com o prazo OK) pode não ter sido entregue e
+// aparecer numa carga futura, quando o prazo já não está OK. Quando o bipe é "fora da malha" e a
+// etiqueta existe noutra carga, o navegador chama verificarPrazoForaDaMalha em segundo plano:
+//  1. pega o pedido/NF da etiqueta na outra carga (a mais recente primeiro);
+//  2. procura o tracking desse pedido nas planilhas do drive de tracking (uma passagem para todas
+//     as etiquetas pedidas; resultado guardado em cache 20 min por pedido);
+//  3. aplica a mesma regra do cruzamento (primeira devolução há mais de PRAZO_DEVOLUCAO_DIAS dias),
+//     com a data de CRIAÇÃO DA CARGA ATUAL como referência.
+// Fora do prazo: a linha da divergência fica com "Avaliação" = "Não Receber" e o ecrã mostra o
+// alerta em vermelho. Dentro do prazo, sem tracking ou sem devolução: nada é gravado.
+
+const PRAZO_FORA_MALHA_CACHE_S = 20 * 60;
+
+/**
+ * @param {string} nomeAba carga atual
+ * @param {string|string[]} etiquetas etiquetas fora da malha (bipadas nesta carga)
+ * @return {{carga, referencia, origemReferencia, erro, resultados: {etiqueta, situacao, pedido, nf,
+ *          cargaOrigem, dias, primeiraDevolucao, planilha}[]}}
+ *   situacao: NAO_RECEBER | PRAZO_OK | SEM_DEVOLUCAO | SEM_TRACKING | SEM_OUTRA_CARGA
+ */
+function verificarPrazoForaDaMalha(nomeAba, etiquetas) {
+  const C = TRACK_CONFIG;
+  const lista = [].concat(etiquetas || []).map(e => String(e).trim()).filter((e, i, a) => e && a.indexOf(e) === i);
+  const saida = { carga: nomeAba, referencia: '', origemReferencia: '', resultados: [], erro: '' };
+  if (!C.ATIVO || !lista.length) return saida;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(nomeAba);
+  if (!aba) { saida.erro = 'A carga ' + nomeAba + ' não existe.'; return saida; }
+
+  const ref = dataCriacaoCarga_(aba);
+  saida.referencia = dataCurtaTracking_(ref.ms);
+  saida.origemReferencia = ref.origem;
+
+  // 1. Pedido/NF da etiqueta nas outras cargas (mais recente primeiro)
+  const origem = {};
+  const pedidos = new Set();
+  lista.forEach(et => {
+    origem[et] = _localizarEtiquetaEmOutrasCargas_(ss, et, nomeAba)
+      .filter(o => o.pedido && o.pedido !== 'N/A')
+      .sort((a, b) => _parseDataDoNome(b.carga) - _parseDataDoNome(a.carga));
+    origem[et].forEach(o => pedidos.add(limparPedidoTracking_(o.pedido)));
+  });
+
+  // 2. Tracking dos pedidos
+  let tracking = {};
+  try { tracking = buscarTrackingPedidos_(pedidos); }
+  catch (e) { saida.erro = 'Sem acesso ao drive de tracking: ' + e.message; }
+
+  // 3. Decisão por etiqueta
+  const naoReceber = new Set();
+  lista.forEach(et => {
+    const occ = origem[et];
+    const r = { etiqueta: et, situacao: 'SEM_OUTRA_CARGA', pedido: '', nf: '', cargaOrigem: '', dias: null, primeiraDevolucao: '', planilha: '' };
+    if (occ.length) {
+      Object.assign(r, { situacao: 'SEM_TRACKING', pedido: occ[0].pedido, nf: occ[0].nf, cargaOrigem: occ[0].carga });
+      for (let k = 0; k < occ.length; k++) {
+        const av = tracking[limparPedidoTracking_(occ[k].pedido)];
+        if (!av) continue;
+        const d = decidirTracking_(av, ref.ms);
+        const atual = { pedido: occ[k].pedido, nf: occ[k].nf, cargaOrigem: occ[k].carga, dias: d.dias,
+          primeiraDevolucao: dataCurtaTracking_(av.primeiraDevolucao), planilha: av.planilha || '' };
+        if (d.naoReceber) { Object.assign(r, atual, { situacao: 'NAO_RECEBER' }); break; }
+        if (r.situacao === 'SEM_TRACKING') Object.assign(r, atual, { situacao: d.semDevolucao ? 'SEM_DEVOLUCAO' : 'PRAZO_OK' });
+      }
+    }
+    if (r.situacao === 'NAO_RECEBER') naoReceber.add(et);
+    saida.resultados.push(r);
+  });
+
+  if (naoReceber.size) marcarDivergenciasNaoReceber_(aba, naoReceber);
+  return saida;
+}
+
+/** "Avaliação" = "Não Receber" nas linhas de divergência destas etiquetas (cria a coluna se faltar). */
+function marcarDivergenciasNaoReceber_(aba, etiquetas) {
+  const C = TRACK_CONFIG;
+  const ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) return 0;
+  const dados = aba.getRange(1, 1, ultimaLinha, aba.getLastColumn()).getDisplayValues();
+  const cab = dados[0].map(c => String(c).trim().toLowerCase());
+  const col = function () {
+    for (let i = 0; i < arguments.length; i++) if (cab.indexOf(arguments[i]) >= 0) return cab.indexOf(arguments[i]);
+    return -1;
+  };
+  const iMerc = col('mercadoria código', 'mercadoria codigo');
+  const iStatus = col('status conferência', 'status conferencia');
+  if (iMerc < 0 || iStatus < 0) return 0;
+  let iAval = col('avaliação', 'avaliacao');
+  if (iAval < 0) {
+    iAval = dados[0].length;
+    aba.getRange(1, iAval + 1).setValue(C.COLUNA_AVALIACAO).setFontWeight('bold');
+  }
+  let n = 0;
+  for (let i = 1; i < dados.length; i++) {
+    const status = String(dados[i][iStatus]);
+    if (!etiquetas.has(String(dados[i][iMerc]).trim())) continue;
+    if (status.indexOf('Divergência') < 0 && status.indexOf('Não Encontrado') < 0) continue;
+    aba.getRange(i + 1, iAval + 1).setValue(C.VALOR_NAO_RECEBER).setFontWeight('bold');
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Tracking mais recente de cada pedido, lido das planilhas do drive de tracking.
+ * @param {Set<string>} pedidos
+ * @return {Object<string, {modificado, primeiraDevolucao, primeiraRecusa, promessa, planilha}>}
+ */
+function buscarTrackingPedidos_(pedidos) {
+  const mapa = {};
+  const faltam = new Set();
+  const cache = cacheTracking_();
+  pedidos.forEach(p => {
+    const guardado = cache ? cache.get('trkped:' + p) : null;
+    if (guardado === null || guardado === undefined) { faltam.add(p); return; }
+    const v = JSON.parse(guardado);
+    if (v) mapa[p] = v;
+  });
+  if (!faltam.size) return mapa;
+
+  const num = v => { const n = Number(v); return isFinite(n) && n > 0 ? n : null; };
+  listarPlanilhasTracking_().forEach(arq => {
+    let lida;
+    try { lida = lerPlanilhaTracking_(arq, faltam); }
+    catch (e) { console.warn('Tracking: planilha ' + arq.nome + ' não lida: ' + e.message); return; }
+    lida.resultados.forEach(l => {
+      const av = { modificado: num(l[1]) || 0, primeiraDevolucao: num(l[2]), primeiraRecusa: num(l[3]), promessa: num(l[4]), planilha: String(l[5]) };
+      if (!mapa[l[0]] || av.modificado > mapa[l[0]].modificado) mapa[l[0]] = av;
+    });
+  });
+  if (cache) faltam.forEach(p => {
+    try { cache.put('trkped:' + p, JSON.stringify(mapa[p] || null), PRAZO_FORA_MALHA_CACHE_S); } catch (e) { /* cache cheia */ }
+  });
+  return mapa;
+}
+
+function cacheTracking_() {
+  try { return typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null; } catch (e) { return null; }
+}
+
+/** dd/mm/aaaa no fuso de São Paulo. */
+function dataCurtaTracking_(ms) {
+  if (!ms) return '';
+  const d = new Date(ms + TRACK_CONFIG.FUSO_MS);
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getUTCDate()) + '/' + p(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear();
+}

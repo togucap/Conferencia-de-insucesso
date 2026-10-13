@@ -51,10 +51,47 @@
       if (typeof registrarLeituraVisual === 'function') registrarLeituraVisual(codigo, tipo, produto);
   }
 
+  // Gravações do bipe: o servidor recusa se a carga foi finalizada (neste ou noutro PC) ou se a
+  // linha é uma divergência. Nesse caso avisa e recarrega a carga para o ecrã bater com a planilha.
+  function gravarBipeNoServidor(nomeFuncao, linha, dataHora, codigo) {
+    const carga = cargaAtual;
+    google.script.run
+      .withSuccessHandler(function(r) { tratarRecusaGravacao(r, carga); })
+      .withFailureHandler(function(erro) {
+          if (statusMensagem) statusMensagem.innerText = `Falha ao gravar o bipe ${codigo}: ${erro.message}`;
+      })[nomeFuncao](carga, linha, dataHora);
+  }
+
+  function tratarRecusaGravacao(r, carga) {
+    if (!r || !r.recusado || carga !== cargaAtual) return;
+    if (modalAlertaEtiqueta && textoAlertaEtiqueta) {
+        textoAlertaEtiqueta.innerHTML = `<strong>Bipe não gravado</strong><br><br>${esc(r.mensagem || '')}`;
+        modalAlertaEtiqueta.style.display = 'flex';
+    }
+    if (r.recusado === 'CARGA_FINALIZADA') {
+        if (typeof definirEstadoCargaAtual === 'function') definirEstadoCargaAtual(true);
+        if (typeof atualizarListaCargas === 'function') atualizarListaCargas();
+    }
+    if (btnCarregar && selectAbas && selectAbas.value === carga) btnCarregar.click();
+  }
+  window.tratarRecusaGravacao = tratarRecusaGravacao;
+
   if (inputEtiqueta) {
       inputEtiqueta.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
           const codigoBipado = inputEtiqueta.value.trim();
+
+          // Carga finalizada (somente leitura) ou resumo aberto: nenhum bipe é processado
+          const resumoAberto = modalResumoFinal && modalResumoFinal.style.display !== 'none';
+          if (codigoBipado !== "" && (resumoAberto || (selectAbas && selectAbas.dataset.finalizada === 'true'))) {
+            if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
+                tipo: 'invalido', icone: icone('alerta'),
+                titulo: 'Carga finalizada', sub: 'Somente leitura: o bipe não foi gravado. Reabra a conferência no resumo para continuar.',
+                etiqueta: codigoBipado
+            });
+            inputEtiqueta.value = "";
+            return;
+          }
 
           if (codigoBipado !== "") {
             if (!/^\d{8}$/.test(codigoBipado)) {
@@ -152,6 +189,8 @@
             };
 
             for (let i = 0; i < linhasTabela.length; i++) {
+              // A linha de uma divergência (fora da carga) nunca é conferida
+              if (linhasTabela[i].classList.contains('linha-divergencia')) continue;
               const celulas = linhasTabela[i].querySelectorAll('td');
 
               if (celulas[indiceColunaMercadoria] && celulas[indiceColunaMercadoria].textContent.trim() === codigoBipado) {
@@ -182,7 +221,7 @@
                         celulas[indiceColunaAvaliacao].textContent = "Não Receber";
                     }
 
-                    google.script.run.registrarBloqueio(cargaAtual, linhaPlanilhaIndex, dataHora);
+                    gravarBipeNoServidor('registrarBloqueio', linhaPlanilhaIndex, dataHora, codigoBipado);
 
                     // Mostra o número E o nome do produto barrado juntos no mesmo cartão
                     if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
@@ -272,7 +311,7 @@
                       rodape: rodape
                   });
                   registrarLeitura(codigoBipado, 'recusa-manual', nomeProd);
-                  google.script.run.registrarRecusaManual(cargaAtual, linhaPlanilhaIndex, dataHora);
+                  gravarBipeNoServidor('registrarRecusaManual', linhaPlanilhaIndex, dataHora, codigoBipado);
               } else {
                   if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
                       tipo: 'ok', icone: icone('ok'),
@@ -283,7 +322,7 @@
                       rodape: rodape
                   });
                   registrarLeitura(codigoBipado, 'ok', nomeProd);
-                  google.script.run.registrarConferencia(cargaAtual, linhaPlanilhaIndex, dataHora);
+                  gravarBipeNoServidor('registrarConferencia', linhaPlanilhaIndex, dataHora, codigoBipado);
               }
 
               if (typeof atualizarDashboardGerencial === 'function') atualizarDashboardGerencial();
@@ -302,7 +341,7 @@
                   etiqueta: codigoBipado, produto: nomeConv
               });
               registrarLeitura(codigoBipado, 'recusa-convertida', nomeConv);
-              google.script.run.registrarRecusaManual(cargaAtual, alvo.tr.dataset.linhaOriginal, dataHora);
+              gravarBipeNoServidor('registrarRecusaManual', alvo.tr.dataset.linhaOriginal, dataHora, codigoBipado);
               atualizarProgresso();
             } else if (encontrouJaConferido && jaRecusadoManual && !linhaConvertivel) {
               if (resultadoBipe) resultadoBipe.innerHTML = cartaoBipe({
@@ -346,14 +385,19 @@
                   badgeErros.style.display = 'inline-block';
               }
 
-              // O servidor grava a divergência e procura a etiqueta nas outras cargas
+              // O servidor grava a divergência e procura a etiqueta nas outras cargas. Se ela pertence
+              // a outra carga, o motor de prazo (Tracking.gs) corre em segundo plano a seguir.
+              const cargaDoBipe = cargaAtual;
               google.script.run
                   .withSuccessHandler(function(r) {
-                      if (r && r.outrasCargas && r.outrasCargas.length && typeof registarOutrasCargas === 'function') {
-                          registarOutrasCargas(r.etiqueta, r.outrasCargas);
+                      if (r && r.recusado) { tratarRecusaGravacao(r, cargaDoBipe); return; }
+                      if (cargaDoBipe !== cargaAtual) return;
+                      if (r && r.outrasCargas && r.outrasCargas.length) {
+                          if (typeof registarOutrasCargas === 'function') registarOutrasCargas(r.etiqueta, r.outrasCargas);
+                          if (typeof agendarVerificacaoPrazo === 'function') agendarVerificacaoPrazo([r.etiqueta]);
                       }
                   })
-                  .registrarErroNaMesmaAba(cargaAtual, codigoBipado, dataHora);
+                  .registrarErroNaMesmaAba(cargaDoBipe, codigoBipado, dataHora);
             }
 
             inputEtiqueta.value = "";

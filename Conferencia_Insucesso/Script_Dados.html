@@ -65,11 +65,23 @@
         if (erros && erros.length > 0) {
           let msgErros = "";
           const escD = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          const aVerificar = [];
           erros.forEach(e => {
             msgErros += `<li data-etiqueta="${escD(String(e.codigo).trim())}"><strong>${escD(e.codigo)}</strong> - Bipado às ${escD(e.hora)}</li>`;
             divergenciasBipadas.add(String(e.codigo).trim());
+            // Prazo ainda por verificar (ex.: a página fechou antes do motor terminar)
+            if (e.outrasCargas && e.outrasCargas.length && !e.avaliacao) aVerificar.push(String(e.codigo).trim());
           });
           if (listaNaoEncontrados && msgErros) listaNaoEncontrados.innerHTML = msgErros;
+          erros.forEach(e => {
+            const aval = String(e.avaliacao || '').toLowerCase();
+            if ((aval === 'não receber' || aval === 'nao receber') && typeof marcarDivergenciaNaoReceber === 'function') {
+              marcarDivergenciaNaoReceber(String(e.codigo).trim(), null);
+            }
+          });
+          if (aVerificar.length && selectAbas.dataset.finalizada !== 'true' && typeof agendarVerificacaoPrazo === 'function') {
+            agendarVerificacaoPrazo(aVerificar);
+          }
           // Etiquetas fora da malha já encontradas noutras cargas
           erros.forEach(e => {
             if (e.outrasCargas && e.outrasCargas.length && typeof registarOutrasCargas === 'function') {
@@ -129,6 +141,11 @@
 
     const matriz = resposta.dados;
     if (statusMensagem) statusMensagem.innerText = "";
+    // Estado real da carga (a lista do seletor pode estar desatualizada)
+    if (typeof resposta.finalizada === 'boolean' && typeof definirEstadoCargaAtual === 'function') {
+        definirEstadoCargaAtual(resposta.finalizada);
+    }
+    if (typeof reiniciarPrazoForaDaMalha === 'function') reiniciarPrazoForaDaMalha();
     
     const cabecalhoMatriz = matriz[0];
     const cbLower = cabecalhoMatriz.map(c => String(c).trim().toLowerCase());
@@ -176,7 +193,10 @@
             dados: row
         });
 
-        if (indicePedidoFaturado !== -1) {
+        // Divergências (pedido "N/A") não são pedidos da carga: fora da contagem e dos bloqueios
+        const stEtapa1 = indiceStatus !== -1 ? String(row[indiceStatus]).trim() : "";
+        const ehDivergencia = stEtapa1.includes("Divergência") || stEtapa1.includes("Não Encontrado");
+        if (indicePedidoFaturado !== -1 && !ehDivergencia) {
             const numPed = String(row[indicePedidoFaturado]).trim();
             if (numPed) mapaPedidosTotal[numPed] = (mapaPedidosTotal[numPed] || 0) + 1;
 
@@ -255,7 +275,11 @@
 
       if (statusValue.includes("Divergência") || statusValue.includes("Não Encontrado")) {
           isForaCarga = true;
-          tr.style.display = 'none'; 
+          tr.style.display = 'none';
+          // TRAVA: a linha da divergência nunca é alvo de um bipe (nem enquanto a lista
+          // de divergências ainda está a chegar do servidor)
+          tr.classList.add('linha-divergencia');
+          if (indiceColunaMercadoria !== -1) divergenciasBipadas.add(String(row[indiceColunaMercadoria]).trim());
       } else if (avaliacaoValue === 'não receber' || avaliacaoValue === 'nao receber' || statusValue === 'Bloqueado' || pedidosBloqueados.has(pedValue)) {
           // Bloqueio por NF/pedido: todas as etiquetas do pedido ficam "Não receber"
           tr.classList.add('linha-pedido-bloqueado');
@@ -318,7 +342,10 @@
     if (containerSwitchVisao) containerSwitchVisao.style.display = 'flex';
 
     if (selectAbas && selectAbas.dataset.finalizada === 'true') {
+        const cargaFinalizada = cargaAtual;
         setTimeout(() => {
+           // Só se o operador ainda estiver nesta carga (troca rápida de carga)
+           if (cargaAtual !== cargaFinalizada || selectAbas.dataset.finalizada !== 'true') return;
            if (typeof mostrarResumoFinal === 'function') {
                mostrarResumoFinal();
            }

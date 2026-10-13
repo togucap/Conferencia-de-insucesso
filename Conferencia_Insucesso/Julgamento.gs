@@ -31,7 +31,10 @@
  *   recebidosLista: (opcional) chaves "pedido|etiqueta" na Lista de Chegada; sem ele usa a
  *                   coluna "Status Lista Chegada" = "Recebido Lista"
  *   historico: (opcional) {etiqueta: {ultimoStatus, ultimaCarga, eventos:[{carga, status}]}}
- *   divergenciasExtras: (opcional) [{etiqueta, outrasCargas:[...]}] ainda não gravadas na aba
+ *   divergenciasExtras: (opcional) [{etiqueta, outrasCargas:[...], naoReceber}] ainda não gravadas na aba
+ *
+ * Uma divergência com "Avaliação" = "Não Receber" (motor de prazo das etiquetas de outra carga,
+ * em Tracking.gs) fica com o veredito "Não receber" e um alerta crítico.
  */
 function julgarCargaMotor_(entrada) {
   const SIT = {
@@ -89,7 +92,9 @@ function julgarCargaMotor_(entrada) {
     if (status.indexOf('Divergência') >= 0 || status.indexOf('Não Encontrado') >= 0) {
       if (vistasDiv.has(etiqueta)) return;
       vistasDiv.add(etiqueta);
-      divergencias.push({ etiqueta, linha, outrasCargas: listaOutras(val(l, iOutras)) });
+      const avalDiv = val(l, iAval).toLowerCase();
+      divergencias.push({ etiqueta, linha, outrasCargas: listaOutras(val(l, iOutras)),
+        naoReceber: avalDiv === 'não receber' || avalDiv === 'nao receber' });
       return;
     }
 
@@ -106,7 +111,7 @@ function julgarCargaMotor_(entrada) {
     const etiqueta = txt(d.etiqueta);
     if (!etiqueta || vistasDiv.has(etiqueta)) return;
     vistasDiv.add(etiqueta);
-    divergencias.push({ etiqueta, linha: null, outrasCargas: (d.outrasCargas || []).slice() });
+    divergencias.push({ etiqueta, linha: null, outrasCargas: (d.outrasCargas || []).slice(), naoReceber: !!d.naoReceber });
   });
 
   // ---------- pedidos ----------
@@ -171,6 +176,7 @@ function julgarCargaMotor_(entrada) {
   divergencias.forEach(d => {
     d.situacao = d.outrasCargas.length ? SIT.OUTRA_CARGA : SIT.FORA_MALHA;
     d.veredito = d.outrasCargas.length ? 'Fora da malha: pertence à carga ' + d.outrasCargas.join(', ') : 'Fora da malha';
+    if (d.naoReceber) d.veredito = 'Não receber: fora do prazo de devolução' + (d.outrasCargas.length ? ' (carga ' + d.outrasCargas.join(', ') + ')' : '');
   });
 
   // ---------- alertas ----------
@@ -199,7 +205,11 @@ function julgarCargaMotor_(entrada) {
     }
   });
   divergencias.forEach(d => {
-    if (d.outrasCargas.length) {
+    if (d.naoReceber) {
+      alertas.push({ tipo: 'FORA_PRAZO_OUTRA_CARGA', nivel: 'critico', etiqueta: d.etiqueta,
+        texto: 'Etiqueta ' + d.etiqueta + ' fora da malha' + (d.outrasCargas.length ? ', da carga ' + d.outrasCargas.join(', ') : '') +
+          ': fora do prazo de devolução. NÃO RECEBER.' });
+    } else if (d.outrasCargas.length) {
       alertas.push({ tipo: 'OUTRA_CARGA', nivel: 'atencao', etiqueta: d.etiqueta,
         texto: 'Etiqueta ' + d.etiqueta + ' fora da malha: pertence à carga ' + d.outrasCargas.join(', ') + '.' });
     }
@@ -282,31 +292,56 @@ function obterJulgamentoCarga(nomeAba, opcoes) {
  * @return {string[]} nomes das cargas, pela ordem das abas
  */
 function _procurarEtiquetaEmOutrasCargas_(ss, etiqueta, nomeAbaAtual) {
+  const cargas = [];
+  _localizarEtiquetaEmOutrasCargas_(ss, etiqueta, nomeAbaAtual).forEach(o => {
+    if (cargas.indexOf(o.carga) < 0) cargas.push(o.carga);
+  });
+  return cargas;
+}
+
+/**
+ * Como _procurarEtiquetaEmOutrasCargas_, mas devolve cada ocorrência com o pedido e a NF
+ * (usado pelo motor de prazo das etiquetas fora da malha, em Tracking.gs).
+ * @return {{carga:string, linha:number, pedido:string, nf:string}[]}
+ */
+function _localizarEtiquetaEmOutrasCargas_(ss, etiqueta, nomeAbaAtual) {
   etiqueta = String(etiqueta || '').trim();
   if (!etiqueta) return [];
   const encontrados = ss.createTextFinder(etiqueta).matchEntireCell(true).findAll();
   const cabecalhos = {};
-  const cargas = [];
+  const ocorrencias = [];
 
   encontrados.forEach(celula => {
     const aba = celula.getSheet();
     const nome = aba.getName();
-    if (nome === nomeAbaAtual || !/^\d{2}-\d{2}-\d{4}/.test(nome) || cargas.indexOf(nome) >= 0) return;
+    if (nome === nomeAbaAtual || !/^\d{2}-\d{2}-\d{4}/.test(nome)) return;
 
     if (!cabecalhos[nome]) {
       const cab = aba.getRange(1, 1, 1, aba.getLastColumn()).getDisplayValues()[0].map(c => String(c).trim().toLowerCase());
+      const col = function () {
+        for (let i = 0; i < arguments.length; i++) if (cab.indexOf(arguments[i]) >= 0) return cab.indexOf(arguments[i]);
+        return -1;
+      };
       cabecalhos[nome] = {
-        merc: cab.indexOf('mercadoria código') >= 0 ? cab.indexOf('mercadoria código') : cab.indexOf('mercadoria codigo'),
-        status: cab.indexOf('status conferência') >= 0 ? cab.indexOf('status conferência') : cab.indexOf('status conferencia')
+        merc: col('mercadoria código', 'mercadoria codigo'),
+        status: col('status conferência', 'status conferencia'),
+        pedido: col('número do pedido faturado', 'numero do pedido faturado'),
+        nf: col('nota fiscal', 'nf'),
+        largura: cab.length
       };
     }
     const c = cabecalhos[nome];
     if (celula.getColumn() - 1 !== c.merc || celula.getRow() === 1) return;
+    const linha = aba.getRange(celula.getRow(), 1, 1, c.largura).getDisplayValues()[0];
     if (c.status >= 0) {
-      const status = String(aba.getRange(celula.getRow(), c.status + 1).getDisplayValue()).trim();
+      const status = String(linha[c.status]).trim();
       if (status.indexOf('Divergência') >= 0 || status.indexOf('Não Encontrado') >= 0) return;
     }
-    cargas.push(nome);
+    ocorrencias.push({
+      carga: nome, linha: celula.getRow(),
+      pedido: c.pedido >= 0 ? String(linha[c.pedido]).trim() : '',
+      nf: c.nf >= 0 ? String(linha[c.nf]).trim() : ''
+    });
   });
-  return cargas;
+  return ocorrencias;
 }

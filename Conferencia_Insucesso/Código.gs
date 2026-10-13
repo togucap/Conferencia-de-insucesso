@@ -38,9 +38,7 @@ function getAbasPlanilha() {
   abas.forEach(aba => {
     const nome = aba.getName();
     if (/^\d{2}-\d{2}-\d{4}/.test(nome)) {
-      const cor = aba.getTabColor();
-      const isFinalizada = (cor === "#10b981" || cor === "#00ff00"); 
-      listaAba.push({ nome: nome, finalizada: isFinalizada });
+      listaAba.push({ nome: nome, finalizada: _cargaFinalizada_(aba) });
     }
   });
   
@@ -53,6 +51,55 @@ function getAbasPlanilha() {
   });
   
   return listaAba;
+}
+
+// ==========================================
+// ESTADO DA CARGA (a cor da aba é o estado: verde = finalizada)
+// ==========================================
+const COR_CARGA_FINALIZADA = "#10b981";
+const NOME_ABA_LOG_CARGAS = "Log_Cargas";
+const META_CARGA_CRIADA_EM = "cargaCriadaEm";
+
+function _cargaFinalizada_(aba) {
+  const cor = String(aba.getTabColor() || "").toLowerCase();
+  return cor === COR_CARGA_FINALIZADA || cor === "#00ff00";
+}
+
+/** Recusa padronizada de gravações numa carga finalizada (o cliente recarrega a carga). */
+function _recusaCargaFinalizada_(nomeAba) {
+  return { recusado: "CARGA_FINALIZADA", carga: nomeAba,
+    mensagem: `A carga ${nomeAba} está finalizada. Este bipe não foi gravado: reabra a conferência para continuar.` };
+}
+
+/** Regista finalizações e reaberturas (aba oculta "Log_Cargas"): quem, quando e de onde. */
+function _registrarLogCarga_(nomeAba, acao, origem) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let aba = ss.getSheetByName(NOME_ABA_LOG_CARGAS);
+    if (!aba) {
+      aba = ss.insertSheet(NOME_ABA_LOG_CARGAS);
+      aba.getRange(1, 1, 1, 5).setValues([["Data/Hora", "Carga", "Ação", "Utilizador", "Origem"]]).setFontWeight("bold");
+      aba.setFrozenRows(1);
+      aba.hideSheet();
+    }
+    let usuario = "";
+    try { usuario = Session.getActiveUser().getEmail(); } catch (e) { /* sem acesso ao e-mail */ }
+    const quando = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "America/Sao_Paulo", "dd/MM/yyyy HH:mm:ss");
+    // Apóstrofo: o nome da carga (dd-mm-aaaa) fica como texto e não vira data
+    aba.appendRow([quando, "'" + nomeAba, acao, usuario || "(não identificado)", origem || ""]);
+  } catch (e) {
+    console.warn("Log de carga não gravado: " + e.message);
+  }
+}
+
+/** Data de criação da carga (gravada em _criarAbaCarga); cargas antigas usam a data do nome da aba. */
+function dataCriacaoCarga_(aba) {
+  try {
+    const meta = aba.getDeveloperMetadata().filter(m => m.getKey() === META_CARGA_CRIADA_EM)[0];
+    const ms = meta ? Date.parse(meta.getValue()) : NaN;
+    if (isFinite(ms)) return { ms: ms, origem: "criação da carga" };
+  } catch (e) { /* sem metadados */ }
+  return { ms: _parseDataDoNome(aba.getName()), origem: "data do nome da aba" };
 }
 
 function getDadosDaAba(nomeAba) {
@@ -102,7 +149,8 @@ function getDadosDaAba(nomeAba) {
     }
     // ========================================================================
 
-    return { dados: dados, bloqueio: bloqueio };
+    // Estado real (a lista de cargas no navegador pode estar desatualizada)
+    return { dados: dados, bloqueio: bloqueio, finalizada: _cargaFinalizada_(aba) };
   } catch (e) {
     return { erro: "Erro ao ler base: " + e.message };
   }
@@ -120,6 +168,7 @@ function getErrosDaCarga(nomeAba) {
     const idxMercadoria = cabecalho.indexOf("mercadoria código") !== -1 ? cabecalho.indexOf("mercadoria código") : cabecalho.indexOf("mercadoria codigo");
     const idxData = cabecalho.indexOf("data/hora conferência") !== -1 ? cabecalho.indexOf("data/hora conferência") : cabecalho.indexOf("data/hora conferencia");
     const idxOutras = cabecalho.indexOf("outras cargas");
+    const idxAval = cabecalho.indexOf("avaliação") !== -1 ? cabecalho.indexOf("avaliação") : cabecalho.indexOf("avaliacao");
 
     if (idxStatus === -1 || idxMercadoria === -1) return [];
 
@@ -129,7 +178,8 @@ function getErrosDaCarga(nomeAba) {
         erros.push({
           codigo: dados[i][idxMercadoria],
           hora: idxData !== -1 ? dados[i][idxData] : "Sessão Anterior",
-          outrasCargas: idxOutras !== -1 ? String(dados[i][idxOutras]).split(/\s*[,;]\s*/).filter(Boolean) : []
+          outrasCargas: idxOutras !== -1 ? String(dados[i][idxOutras]).split(/\s*[,;]\s*/).filter(Boolean) : [],
+          avaliacao: idxAval !== -1 ? String(dados[i][idxAval]).trim() : ""
         });
       }
     }
@@ -143,25 +193,29 @@ function getErrosDaCarga(nomeAba) {
 // ==========================================
 // 3. FUNÇÕES DE ESCRITA E FINALIZAÇÃO
 // ==========================================
+// Devolvem {ok:true} ou {recusado: "CARGA_FINALIZADA" | "DIVERGENCIA", mensagem} (o cliente avisa e corrige o ecrã)
 function registrarConferencia(nomeAba, rowIndex, dataHora) {
-  _atualizarCelulaStatus(nomeAba, rowIndex, "Conferido", dataHora);
+  return _atualizarCelulaStatus(nomeAba, rowIndex, "Conferido", dataHora);
 }
 
 function registrarBloqueio(nomeAba, rowIndex, dataHora) {
-  _atualizarCelulaStatus(nomeAba, rowIndex, "Bloqueado", dataHora);
+  return _atualizarCelulaStatus(nomeAba, rowIndex, "Bloqueado", dataHora);
 }
 
 // Modo recusa: o volume foi bipado, mas separado e recusado pelo operador.
 // O status é "cru" (sem motivo); o motivo é escolhido mais tarde, ao gerar o romaneio.
 const STATUS_RECUSA_MANUAL = "Recusado Manualmente";
 function registrarRecusaManual(nomeAba, rowIndex, dataHora) {
-  _atualizarCelulaStatus(nomeAba, rowIndex, STATUS_RECUSA_MANUAL, dataHora);
+  return _atualizarCelulaStatus(nomeAba, rowIndex, STATUS_RECUSA_MANUAL, dataHora);
 }
 
 function _atualizarCelulaStatus(nomeAba, rowIndex, statusTxt, dataHora) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName(nomeAba);
-  if (!aba) return;
+  if (!aba) return { recusado: "SEM_ABA", mensagem: `A carga ${nomeAba} não existe.` };
+  if (_cargaFinalizada_(aba)) return _recusaCargaFinalizada_(nomeAba);
+  rowIndex = Number(rowIndex);
+  if (!(rowIndex >= 2)) return { recusado: "LINHA_INVALIDA", mensagem: "Linha inválida." };
 
   const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0].map(c => String(c).trim().toLowerCase());
   let idxStatus = cabecalho.indexOf("status conferência");
@@ -181,14 +235,22 @@ function _atualizarCelulaStatus(nomeAba, rowIndex, statusTxt, dataHora) {
     aba.getRange(1, idxDataHora + 1).setValue("Data/Hora Conferência").setFontWeight("bold");
   }
 
+  // TRAVA: uma linha de divergência (fora da carga) nunca passa a Conferido/Bloqueado/Recusado
+  const statusAtual = String(aba.getRange(rowIndex, idxStatus + 1).getDisplayValue()).trim();
+  if (statusAtual.indexOf("Divergência") >= 0 || statusAtual.indexOf("Não Encontrado") >= 0) {
+    return { recusado: "DIVERGENCIA", mensagem: "Esta etiqueta já consta como fora da carga; o status não foi alterado." };
+  }
+
   aba.getRange(rowIndex, idxStatus + 1).setValue(statusTxt);
   aba.getRange(rowIndex, idxDataHora + 1).setValue(dataHora);
+  return { ok: true };
 }
 
 function registrarErroNaMesmaAba(nomeAba, codigoBipado, dataHora) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName(nomeAba);
   if (!aba) return;
+  if (_cargaFinalizada_(aba)) return Object.assign(_recusaCargaFinalizada_(nomeAba), { etiqueta: String(codigoBipado) });
   
   const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
   let novaLinha = new Array(cabecalho.length).fill("");
@@ -244,7 +306,8 @@ function finalizarCargaStatus(nomeAba) {
   const aba = ss.getSheetByName(nomeAba);
   let recebidos = [];
   if (aba) {
-    aba.setTabColor("#10b981"); // Verde Esmeralda = Finalizada
+    aba.setTabColor(COR_CARGA_FINALIZADA); // Verde Esmeralda = Finalizada
+    _registrarLogCarga_(nomeAba, "Finalizada", "botão Finalizar");
     const setListaChegada = _obterSetGlobalListaChegada();
     recebidos = _sincronizarAbaComSetListaChegada(aba, setListaChegada);
     
@@ -254,10 +317,14 @@ function finalizarCargaStatus(nomeAba) {
   return recebidos;
 }
 
-function reabrirCargaStatus(nomeAba) {
+/** @param {string} origem de onde veio o pedido (fica no "Log_Cargas") */
+function reabrirCargaStatus(nomeAba, origem) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName(nomeAba);
-  if (aba) aba.setTabColor(null); 
+  if (!aba) return { ok: false };
+  aba.setTabColor(null);
+  _registrarLogCarga_(nomeAba, "Reaberta", origem || "(origem não indicada)");
+  return { ok: true };
 }
 
 /* STREAMING_CHUNK:Inicializando metodos para upload e manipulacao de dados... */
@@ -322,6 +389,8 @@ function _criarAbaCarga(nomeAba, matrizDados, opcoes) {
     // ========================================================================
     
     aba = ss.insertSheet(nomeAba);
+    // Data de criação: referência dos 35 dias no motor de prazo das etiquetas de outras cargas
+    try { aba.addDeveloperMetadata(META_CARGA_CRIADA_EM, new Date().toISOString()); } catch (e) { /* sem metadados */ }
     const intervalo = aba.getRange(1, 1, matrizDados.length, matrizDados[0].length);
     if (opcoes.comoTexto) intervalo.setNumberFormat('@');
     intervalo.setValues(matrizDados);
