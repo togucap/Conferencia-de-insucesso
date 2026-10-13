@@ -154,6 +154,7 @@
     
     const cabecalhoMatriz = matriz[0];
     const cbLower = cabecalhoMatriz.map(c => String(c).trim().toLowerCase());
+    cabecalhoCargaAtual = cbLower;
     
     indiceColunaMercadoria = cbLower.indexOf("mercadoria código") !== -1 ? cbLower.indexOf("mercadoria código") : cbLower.indexOf("mercadoria codigo");
     indiceColunaAvaliacao = cbLower.indexOf("avaliação") !== -1 ? cbLower.indexOf("avaliação") : cbLower.indexOf("avaliacao");

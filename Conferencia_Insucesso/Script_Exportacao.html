@@ -18,8 +18,21 @@
       if (btnExportarMicro) btnExportarMicro.innerHTML = "⏳ Aguarde...";
 
       obterJulgamentoAtual(function(j) {
-          const cabecalho = ["Situação do Pedido", "Tipo", "NF", "Pedido Faturado", "Mercadoria Codigo", "Produto Nome",
-                             "Status da Conferencia", "Na Lista de Chegada", "Veredito Final", "Alertas"];
+          // Nomes só do relatório: "Mercadoria Código" sai como "Etiquetas" e "Avaliação transportes" como "Motivo"
+          const cabecalho = ["Situação do Pedido", "Tipo", "NF", "Pedido Faturado", "Etiquetas", "Produto Nome",
+                             "Status da Conferencia", "Na Lista de Chegada", "Veredito Final", "Motivo", "Alertas"];
+
+          // "Avaliação transportes" (tracking Intelipost) de cada linha da carga, pelo número da linha na planilha
+          const nomesColunas = cabecalhoCargaAtual || [];
+          let idxTransportes = nomesColunas.indexOf("avaliação transportes");
+          if (idxTransportes === -1) idxTransportes = nomesColunas.indexOf("avaliacao transportes");
+          const motivoPorLinha = {};
+          if (idxTransportes !== -1) {
+              linhasGlobais.forEach(l => {
+                  const v = l.dados[idxTransportes];
+                  motivoPorLinha[l.indexOriginal] = v == null ? "" : String(v).trim();
+              });
+          }
           const linhasConsolidado = [cabecalho];
           const linhasUnitarios = [cabecalho];
           const linhasMultiplos = [cabecalho];
@@ -47,6 +60,7 @@
                   it.status || "Aguardando bipagem",
                   it.naLista ? "Sim" : "Não",
                   it.veredito,
+                  motivoPorLinha[it.linha] || "",
                   (alertasPorItem[(it.pedido || '') + '|' + it.etiqueta] || []).join(" | ")
               ];
               linhasConsolidado.push(linha);
@@ -63,7 +77,7 @@
 
           j.divergencias.forEach(d => {
               linhasConsolidado.push(["Fora da malha", "-", "N/A", "N/A", d.etiqueta, "N/A",
-                  "Bipado fora da carga", "N/A", d.veredito,
+                  "Bipado fora da carga", "N/A", d.veredito, "",
                   d.outrasCargas.length ? "Encontrada na carga " + d.outrasCargas.join(", ") : ""]);
           });
 
@@ -73,11 +87,12 @@
               {wch: 13}, // Tipo
               {wch: 13}, // NF
               {wch: 16}, // Pedido Faturado
-              {wch: 18}, // Mercadoria Codigo
+              {wch: 18}, // Etiquetas
               {wch: 40}, // Produto Nome
               {wch: 22}, // Status
               {wch: 12}, // Lista de Chegada
               {wch: 36}, // Veredito
+              {wch: 14}, // Motivo (Avaliação transportes)
               {wch: 60}  // Alertas
           ];
           [["Consolidado", linhasConsolidado], ["Unitários", linhasUnitarios], ["Múltiplos", linhasMultiplos]].forEach(([nome, linhas]) => {
