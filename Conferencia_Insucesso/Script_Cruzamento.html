@@ -335,7 +335,7 @@
         <strong>Tracking Intelipost</strong>
         <div class="cruz-tracking-linha">${t.pedidos} pedido(s) consultado(s) · ${t.encontrados} com tracking · ${t.planilhas} planilha(s) lida(s)</div>
         ${linha('Fora do prazo de devolução, marcados "Não Receber"', t.naoReceber, 'perigo')}
-        ${linha('Recusa dentro da promessa ("Avaliação transportes")', t.recusas, 'perigo')}
+        ${linha('Recusa de Entrega dentro da promessa ("Avaliação transportes")', t.recusas, 'perigo')}
         ${linha('Sem tracking', t.semTracking)}
         ${linha('Sem ocorrência de devolução', t.semDevolucao)}
         ${t.erro ? `<div class="cruz-tracking-linha erro">${esc(t.erro)}</div>` : ''}

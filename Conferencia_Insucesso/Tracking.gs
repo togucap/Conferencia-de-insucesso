@@ -12,7 +12,7 @@
 //    Se, até ao dia da criação da base, passaram mais de PRAZO_DEVOLUCAO_DIAS dias, o pedido
 //    entra com a Avaliação "Não Receber".
 //  - Recusa: ocorrências com um dos PADROES_RECUSA. Se a primeira recusa for até à data de
-//    promessa de entrega ao cliente (inclusive), "Avaliação transportes" = "Recusa".
+//    promessa de entrega ao cliente (inclusive), "Avaliação transportes" = "Recusa de Entrega".
 //  - Pedido sem tracking ou sem devolução: nada na planilha, só no resumo do cruzamento.
 
 const TRACK_CONFIG = {
@@ -46,7 +46,7 @@ const TRACK_CONFIG = {
   VALOR_RECEBER: 'Receber',
   VALOR_RECEBER_SEM_TRACKING: 'Receber (sem tracking)',
   COLUNA_AVALIACAO_TRANSPORTES: 'Avaliação transportes',
-  VALOR_RECUSA: 'Recusa',
+  VALOR_RECUSA: 'Recusa de Entrega',
   // Brasil sem horário de verão: dia civil de São Paulo = UTC-3
   FUSO_MS: -3 * 3600 * 1000
 };

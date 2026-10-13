@@ -29,8 +29,9 @@
           const motivoPorLinha = {};
           if (idxTransportes !== -1) {
               linhasGlobais.forEach(l => {
-                  const v = l.dados[idxTransportes];
-                  motivoPorLinha[l.indexOriginal] = v == null ? "" : String(v).trim();
+                  const v = l.dados[idxTransportes] == null ? "" : String(l.dados[idxTransportes]).trim();
+                  // Cargas criadas antes da mudança de nome gravaram só "Recusa"
+                  motivoPorLinha[l.indexOriginal] = v.toLowerCase() === "recusa" ? "Recusa de Entrega" : v;
               });
           }
           const linhasConsolidado = [cabecalho];

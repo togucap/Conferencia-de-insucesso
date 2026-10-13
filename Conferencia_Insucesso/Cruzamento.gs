@@ -411,7 +411,7 @@ function executarEtapaInterna_() {
     });
   }
 
-  // Tracking: "Avaliação" (Não Receber, prazo de devolução) e "Avaliação transportes" (Recusa).
+  // Tracking: "Avaliação" (Não Receber, prazo de devolução) e "Avaliação transportes" (Recusa de Entrega).
   // A referência do prazo é o momento da criação da base.
   let tracking = null;
   if (typeof TRACK_CONFIG !== 'undefined' && TRACK_CONFIG.ATIVO) {
@@ -492,7 +492,7 @@ function textoTrackingEmail_(t) {
     'TRACKING INTELIPOST',
     `Pedidos consultados: ${t.pedidos} · com tracking: ${t.encontrados} · planilhas lidas: ${t.planilhas}`,
     `Fora do prazo de devolução (${TRACK_CONFIG.PRAZO_DEVOLUCAO_DIAS} dias), marcados "Não Receber": ${t.naoReceber.total}` + (t.naoReceber.total ? ' — NFs ' + lista(t.naoReceber) : ''),
-    `Recusas dentro da promessa de entrega ("Avaliação transportes" = Recusa): ${t.recusas.total}` + (t.recusas.total ? ' — NFs ' + lista(t.recusas) : ''),
+    `Recusas de entrega dentro da promessa ("Avaliação transportes" = ${TRACK_CONFIG.VALOR_RECUSA}): ${t.recusas.total}` + (t.recusas.total ? ' — NFs ' + lista(t.recusas) : ''),
     t.semTracking.total ? `Sem tracking: ${t.semTracking.total} — NFs ${lista(t.semTracking)}` : '',
     t.semDevolucao.total ? `Sem ocorrência de devolução: ${t.semDevolucao.total} — NFs ${lista(t.semDevolucao)}` : '',
     t.erro ? 'Aviso: ' + t.erro : ''
