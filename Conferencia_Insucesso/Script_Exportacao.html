@@ -30,8 +30,9 @@
           if (idxTransportes !== -1) {
               linhasGlobais.forEach(l => {
                   const v = l.dados[idxTransportes] == null ? "" : String(l.dados[idxTransportes]).trim();
-                  // Cargas criadas antes da mudança de nome gravaram só "Recusa"
-                  motivoPorLinha[l.indexOriginal] = v.toLowerCase() === "recusa" ? "Recusa de Entrega" : v;
+                  // Nomes antigos ("Recusa", "Recusa na Entrega"...) saem sempre como "Recusa de Entrega"
+                  const chave = v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
+                  motivoPorLinha[l.indexOriginal] = /^recusa( (na|da|de) entrega)?$/.test(chave) ? "Recusa de Entrega" : v;
               });
           }
           const linhasConsolidado = [cabecalho];

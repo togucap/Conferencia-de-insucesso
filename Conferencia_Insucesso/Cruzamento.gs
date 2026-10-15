@@ -97,6 +97,7 @@ function onOpen() {
     .addItem('Cancelar cruzamento em andamento', 'cancelarCruzamento')
     .addSeparator()
     .addItem('Romaneio: recriar modelo no Docs', 'recriarModeloRomaneio')
+    .addItem('Tracking: padronizar "Recusa de Entrega" nas cargas', 'padronizarRecusaDeEntrega')
     .addToUi();
 }
 

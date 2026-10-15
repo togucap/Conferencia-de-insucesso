@@ -327,6 +327,44 @@ function aplicarTrackingNaMatriz_(ss, matriz, hojeMs) {
   return resumo;
 }
 
+/** Nomes antigos do valor de recusa na "Avaliação transportes" (comparação sem acentos/maiúsculas). */
+const NOMES_ANTIGOS_RECUSA = ['RECUSA', 'RECUSA NA ENTREGA', 'RECUSA DA ENTREGA', 'RECUSA DE ENTREGA'];
+
+/**
+ * Padroniza, em todas as cargas, a "Avaliação transportes" gravada com um nome antigo
+ * ("Recusa", "Recusa na Entrega"...) para TRACK_CONFIG.VALOR_RECUSA ("Recusa de Entrega").
+ * Menu "Cruzamento NF" da planilha (ou executar no editor). Pode ser repetida sem efeito.
+ * @return {{abas:number, celulas:number}}
+ */
+function padronizarRecusaDeEntrega() {
+  const C = TRACK_CONFIG;
+  const alvo = normalizarTextoTracking_(C.COLUNA_AVALIACAO_TRANSPORTES);
+  const resumo = { abas: 0, celulas: 0 };
+  SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(aba => {
+    if (!/^\d{2}-\d{2}-\d{4}/.test(aba.getName())) return;
+    const ultimaLinha = aba.getLastRow(), ultimaColuna = aba.getLastColumn();
+    if (ultimaLinha < 2 || ultimaColuna < 1) return;
+    const cab = aba.getRange(1, 1, 1, ultimaColuna).getDisplayValues()[0];
+    const col = cab.findIndex(c => normalizarTextoTracking_(c).trim() === alvo);
+    if (col < 0) return;
+    const faixa = aba.getRange(2, col + 1, ultimaLinha - 1, 1);
+    const valores = faixa.getValues();
+    let mudou = 0;
+    valores.forEach(l => {
+      const atual = String(l[0] == null ? '' : l[0]);
+      if (atual !== C.VALOR_RECUSA && NOMES_ANTIGOS_RECUSA.indexOf(normalizarTextoTracking_(atual).trim()) >= 0) {
+        l[0] = C.VALOR_RECUSA;
+        mudou++;
+      }
+    });
+    if (mudou) { faixa.setValues(valores); resumo.abas++; resumo.celulas += mudou; }
+  });
+  try {
+    SpreadsheetApp.getUi().alert(`"${C.VALOR_RECUSA}": ${resumo.celulas} célula(s) corrigida(s) em ${resumo.abas} carga(s).`);
+  } catch (e) { /* executado fora da planilha */ }
+  return resumo;
+}
+
 /** Abas de cache do tracking (apagadas com as do cruzamento). */
 function nomesCacheTracking_() {
   return [TRACK_ABA_ARQUIVOS, TRACK_ABA_RESULTADOS];
