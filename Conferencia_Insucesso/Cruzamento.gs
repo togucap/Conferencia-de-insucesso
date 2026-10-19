@@ -424,8 +424,9 @@ function executarEtapaInterna_() {
     }
   }
 
-  const resumo = calcularResumoCarga_(montagem.matriz);
   const criada = _criarAbaCarga(job.nomeCarga, montagem.matriz, { comoTexto: true });
+  // Depois de criar a aba: _criarAbaCarga acrescenta à matriz a coluna "Conferencia MSPC" (Monte o Seu)
+  const resumo = calcularResumoCarga_(montagem.matriz);
   finalizarLimpezaCruzamento_(ss);
   try {
     registrarNFsNaoEncontradas_(ss, criada.aba, montagem.naoEncontradas, job.usuario);
@@ -1111,31 +1112,52 @@ function notificar_(titulo, mensagem, final) {
  *  - etiquetas: contagem de "Mercadoria Código" preenchida (coluna D)
  *  - valorTotal: soma de "Custo Produto" (coluna F), que vem no formato americano (1,234.56)
  */
+/**
+ * Números do resumo da carga (resultado do cruzamento e e-mail).
+ * Produtos = linhas com etiqueta; MSPC = pedidos distintos com "Conferencia MSPC" preenchida.
+ */
 function calcularResumoCarga_(matriz) {
   const cab = matriz[0].map(c => normalizarCabecalho_(c));
   const idx = nome => cab.indexOf(normalizarCabecalho_(nome));
   const iPed = idx(CRUZ_CONFIG.COLUNA_PEDIDO);
   const iEtq = idx(CRUZ_CONFIG.COLUNA_ETIQUETA);
   const iCusto = idx(CRUZ_CONFIG.COLUNA_CUSTO);
+  const iAval = idx('Avaliação');
+  const iTransp = idx('Avaliação transportes');
+  const iMspc = idx('Conferencia MSPC');
+  const txt = (l, i) => (i !== -1 ? String(l[i] == null ? '' : l[i]).trim() : '');
 
   const pedidos = new Set();
+  const pedidosMspc = new Set();
   let etiquetas = 0;
   let centavos = 0;
   let valoresInvalidos = 0;
+  let naoReceber = 0, recusaEntrega = 0, suspeitaFraude = 0;
 
   for (let i = 1; i < matriz.length; i++) {
     const l = matriz[i];
-    const ped = iPed !== -1 ? String(l[iPed] == null ? '' : l[iPed]).trim() : '';
+    const ped = txt(l, iPed);
     if (ped) pedidos.add(ped);
-    if (iEtq !== -1 && String(l[iEtq] == null ? '' : l[iEtq]).trim()) etiquetas++;
+    if (ped && txt(l, iMspc)) pedidosMspc.add(ped);
+    if (txt(l, iEtq)) {
+      etiquetas++;
+      const aval = normalizarCabecalho_(txt(l, iAval));
+      const transp = normalizarCabecalho_(txt(l, iTransp));
+      if (aval === 'nao receber') naoReceber++;
+      if (/^recusa( (na|da|de) entrega)?$/.test(transp)) recusaEntrega++;
+      if (aval.indexOf('suspeita de fraude') >= 0 || transp.indexOf('suspeita de fraude') >= 0) suspeitaFraude++;
+    }
     if (iCusto !== -1) {
-      const bruto = String(l[iCusto] == null ? '' : l[iCusto]).trim();
+      const bruto = txt(l, iCusto);
       if (!bruto) continue;
       const v = converterValor_(bruto);
       if (isNaN(v)) valoresInvalidos++; else centavos += Math.round(v * 100);
     }
   }
-  return { pedidos: pedidos.size, etiquetas: etiquetas, valorTotal: centavos / 100, valoresInvalidos: valoresInvalidos };
+  return {
+    pedidos: pedidos.size, etiquetas: etiquetas, valorTotal: centavos / 100, valoresInvalidos: valoresInvalidos,
+    naoReceber: naoReceber, recusaEntrega: recusaEntrega, suspeitaFraude: suspeitaFraude, pedidosMspc: pedidosMspc.size
+  };
 }
 
 /**
@@ -1324,6 +1346,10 @@ function enviarEmailConclusao_(ss, r, job) {
     `Pedidos (Número do Pedido Faturado, únicos): ${formatarNumero_(rs.pedidos)}`,
     `Etiquetas (Mercadoria Código): ${formatarNumero_(rs.etiquetas)}`,
     `Valor total de devolução (Custo Produto): ${formatarMoeda_(rs.valorTotal)}`,
+    `Produtos marcados "Não Receber": ${formatarNumero_(rs.naoReceber || 0)}`,
+    `Produtos com "Recusa de Entrega": ${formatarNumero_(rs.recusaEntrega || 0)}`,
+    `Produtos com "Suspeita de Fraude": ${formatarNumero_(rs.suspeitaFraude || 0)}`,
+    `Pedidos MSPC (Monte o Seu, pedidos únicos): ${formatarNumero_(rs.pedidosMspc || 0)}`,
     rs.valoresInvalidos ? `Atenção: ${rs.valoresInvalidos} valor(es) de custo não reconhecido(s) ficaram fora da soma.` : '',
     '',
     `NFs enviadas: ${r.totalNFs} · encontradas: ${r.encontradas} · não encontradas: ${falta.length}`,
@@ -1339,6 +1365,14 @@ function enviarEmailConclusao_(ss, r, job) {
     `<td style="padding:14px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;width:33%">` +
     `<div style="font-size:12px;color:#64748b">${rotulo}</div>` +
     `<div style="font-size:22px;font-weight:700;color:#0f172a;margin-top:4px">${valor}</div></td>`;
+  // Cartões em destaque (cor por tema); a cor forte só quando há ocorrências
+  const destaque = (rotulo, valor, cor, fundo, borda) => {
+    const tem = valor > 0;
+    return `<td style="padding:14px 16px;border:1px solid ${tem ? borda : '#e2e8f0'};border-left:4px solid ${tem ? cor : '#cbd5e1'};` +
+      `border-radius:8px;background:${tem ? fundo : '#f8fafc'};width:25%">` +
+      `<div style="font-size:12px;color:${tem ? cor : '#64748b'};font-weight:700">${rotulo}</div>` +
+      `<div style="font-size:24px;font-weight:700;color:${tem ? cor : '#0f172a'};margin-top:4px">${formatarNumero_(valor)}</div></td>`;
+  };
 
   const html =
     `<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;max-width:640px">` +
@@ -1349,6 +1383,12 @@ function enviarEmailConclusao_(ss, r, job) {
     cartao('Pedidos (únicos)', formatarNumero_(rs.pedidos)) +
     cartao('Etiquetas', formatarNumero_(rs.etiquetas)) +
     cartao('Valor total de devolução', formatarMoeda_(rs.valorTotal)) +
+    `</tr></table>` +
+    `<table role="presentation" cellspacing="8" cellpadding="0" style="width:100%;margin:0 -8px 8px"><tr>` +
+    destaque('Não Receber (produtos)', rs.naoReceber || 0, '#b91c1c', '#fef2f2', '#fecaca') +
+    destaque('Recusa de Entrega (produtos)', rs.recusaEntrega || 0, '#c2410c', '#fff7ed', '#fed7aa') +
+    destaque('Suspeita de Fraude (produtos)', rs.suspeitaFraude || 0, '#7e22ce', '#faf5ff', '#e9d5ff') +
+    destaque('Pedidos MSPC', rs.pedidosMspc || 0, '#1d4ed8', '#eff6ff', '#bfdbfe') +
     `</tr></table>` +
     (rs.valoresInvalidos ? `<p style="color:#b45309;font-size:13px">Atenção: ${rs.valoresInvalidos} valor(es) de custo não reconhecido(s) ficaram fora da soma.</p>` : '') +
     `<p style="font-size:14px;margin:12px 0 4px">NFs enviadas: <b>${r.totalNFs}</b> · encontradas: <b>${r.encontradas}</b> · não encontradas: <b>${falta.length}</b></p>` +
