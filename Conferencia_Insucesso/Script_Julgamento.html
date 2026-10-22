@@ -46,7 +46,7 @@
       numerosLinha.push(linhaObj.indexOriginal);
     });
 
-    return julgarCargaMotor_({
+    const julgamento = julgarCargaMotor_({
       carga: cargaAtual,
       cabecalho: CABECALHO_JULGAMENTO,
       linhas,
@@ -57,6 +57,12 @@
         etiqueta, outrasCargas: outrasCargasPorEtiqueta[etiqueta] || [], naoReceber: !!prazoNaoReceber[etiqueta]
       }))
     });
+    // Pedido/NF informados depois de a carga ser aberta (tela "Produtos fora da malha")
+    julgamento.divergencias.forEach(d => {
+      const inf = divergenciaInformada[d.etiqueta];
+      if (inf) { d.pedido = inf.pedido; d.nf = inf.nf; }
+    });
+    return julgamento;
   }
 
   /** Sincroniza a Lista de Chegada da carga (servidor) e devolve o julgamento atual. */
@@ -198,6 +204,11 @@
   // --------------------------------------------------------------------------
   let prazoNaoReceber = {};      // etiqueta -> resultado do motor (fora do prazo)
   let prazoAvaliado = {};        // etiqueta -> avaliação gravada ("Não Receber", "Receber", ...)
+  let prazoNota = {};            // etiqueta -> motivo (nota) da avaliação mostrada
+  let divergenciaInformada = {}; // etiqueta -> {pedido, nf} informados na tela "Produtos fora da malha"
+  window.registrarPedidoNfInformado = function(etiqueta, pedido, nf) {
+    if (etiqueta && pedido) divergenciaInformada[etiqueta] = { pedido: pedido, nf: nf || '' };
+  };
   const filaPrazo = new Set();
   let prazoEmCurso = false;
   let geracaoPrazo = 0;          // muda ao trocar de carga: respostas antigas são ignoradas
@@ -205,6 +216,8 @@
   function reiniciarPrazoForaDaMalha() {
     prazoNaoReceber = {};
     prazoAvaliado = {};
+    prazoNota = {};
+    divergenciaInformada = {};
     filaPrazo.clear();
     prazoEmCurso = false;
     geracaoPrazo++;
@@ -295,6 +308,13 @@
   /** Dentro do prazo / sem devolução / sem tracking: fica marcado (verde) e não se consulta outra vez. */
   function marcarDivergenciaReceber(etiqueta, valor, nota) {
     prazoAvaliado[etiqueta] = valor;
+    prazoNota[etiqueta] = nota || '';
+    // Pode ter sido reavaliada (ex.: Pedido/NF corrigidos na tela "Produtos fora da malha")
+    if (prazoNaoReceber[etiqueta]) {
+      delete prazoNaoReceber[etiqueta];
+      itensDivergencia(etiqueta).forEach(li => li.classList.remove('divergencia-nao-receber'));
+      atualizarDestaqueNaoReceber(false);
+    }
     const semTracking = /sem tracking/i.test(valor);
     textoPrazoNoItem(etiqueta, semTracking ? 'prazo-receber-sem-tracking' : 'prazo-receber',
       valor.toUpperCase() + (nota ? ' · ' + nota : ''));
@@ -306,6 +326,7 @@
     info = info || {};
     prazoNaoReceber[etiqueta] = info;
     prazoAvaliado[etiqueta] = 'Não Receber';
+    prazoNota[etiqueta] = info.nota || '';
     itensDivergencia(etiqueta).forEach(li => li.classList.add('divergencia-nao-receber'));
     textoPrazoNoItem(etiqueta, 'prazo-nao-receber', 'NÃO RECEBER · ' + (info.nota || 'fora do prazo de devolução.'));
     avaliacaoNaLinhaDivergencia(etiqueta, 'Não Receber');
@@ -314,7 +335,7 @@
     if (cartao && cartao.dataset.etiqueta === etiqueta && !cartao.querySelector('.bipe-aviso-fora-prazo')) {
       const aviso = document.createElement('div');
       aviso.className = 'bipe-aviso bipe-aviso-perigo bipe-aviso-fora-prazo';
-      aviso.textContent = 'NÃO RECEBER: fora do prazo de devolução (carga ' + (info.cargaOrigem || '-') + '). Separe o volume.';
+      aviso.textContent = 'NÃO RECEBER: fora do prazo de devolução' + (info.cargaOrigem ? ' (carga ' + info.cargaOrigem + ')' : '') + '. Separe o volume.';
       cartao.appendChild(aviso);
     }
     atualizarDestaqueNaoReceber(true);
@@ -334,4 +355,38 @@
       if (icone) icone.style.transform = 'rotate(0deg)';
     }
   }
+
+  /**
+   * Aplica as avaliações gravadas na planilha (getErrosDaCarga) ao painel de divergências.
+   * Usado ao abrir a carga e na sincronização periódica (resultados vindos de outro PC ou da tela
+   * "Produtos fora da malha"). Só mexe no que mudou.
+   */
+  function aplicarAvaliacoesDivergencias(erros) {
+    (erros || []).forEach(e => {
+      const et = String(e.codigo).trim();
+      const aval = String(e.avaliacao || '').trim();
+      const nota = String(e.notaAvaliacao || '');
+      if (et && e.pedido) registrarPedidoNfInformado(et, e.pedido, e.nf);
+      if (!et || !aval) return;
+      if (prazoAvaliado[et] === aval && (prazoNota[et] || '') === nota) return;
+      const min = aval.toLowerCase();
+      if (min === 'não receber' || min === 'nao receber') {
+        marcarDivergenciaNaoReceber(et, { nota: nota, cargaOrigem: (e.outrasCargas || [])[0] });
+      } else if (min.indexOf('receber') === 0) {
+        marcarDivergenciaReceber(et, aval, nota);
+      }
+    });
+  }
+
+  const INTERVALO_SYNC_PRAZO_MS = 60 * 1000;
+  function sincronizarAvaliacoesDivergencias() {
+    if (!cargaAtual || document.hidden || !listaNaoEncontrados || !listaNaoEncontrados.children.length) return;
+    const carga = cargaAtual;
+    google.script.run
+      .withSuccessHandler(function(erros) { if (carga === cargaAtual) aplicarAvaliacoesDivergencias(erros); })
+      .withFailureHandler(function() { /* tenta no próximo ciclo */ })
+      .getErrosDaCarga(carga);
+  }
+  window.sincronizarAvaliacoesDivergencias = sincronizarAvaliacoesDivergencias;
+  setInterval(sincronizarAvaliacoesDivergencias, INTERVALO_SYNC_PRAZO_MS);
 </script>

@@ -169,6 +169,8 @@ function getErrosDaCarga(nomeAba) {
     const idxData = cabecalho.indexOf("data/hora conferência") !== -1 ? cabecalho.indexOf("data/hora conferência") : cabecalho.indexOf("data/hora conferencia");
     const idxOutras = cabecalho.indexOf("outras cargas");
     const idxAval = cabecalho.indexOf("avaliação") !== -1 ? cabecalho.indexOf("avaliação") : cabecalho.indexOf("avaliacao");
+    const idxPedErro = cabecalho.indexOf("número do pedido faturado") !== -1 ? cabecalho.indexOf("número do pedido faturado") : cabecalho.indexOf("numero do pedido faturado");
+    const idxNFErro = cabecalho.indexOf("nota fiscal") !== -1 ? cabecalho.indexOf("nota fiscal") : cabecalho.indexOf("nf");
 
     if (idxStatus === -1 || idxMercadoria === -1) return [];
     // Motivo da avaliação do prazo (nota gravada pelo motor das etiquetas de outra carga)
@@ -185,7 +187,10 @@ function getErrosDaCarga(nomeAba) {
           hora: idxData !== -1 ? dados[i][idxData] : "Sessão Anterior",
           outrasCargas: idxOutras !== -1 ? String(dados[i][idxOutras]).split(/\s*[,;]\s*/).filter(Boolean) : [],
           avaliacao: idxAval !== -1 ? String(dados[i][idxAval]).trim() : "",
-          notaAvaliacao: notas[i - 1] ? String(notas[i - 1][0] || "") : ""
+          notaAvaliacao: notas[i - 1] ? String(notas[i - 1][0] || "") : "",
+          // Pedido/NF informados na tela "Produtos fora da malha" ("N/A" = não informado)
+          pedido: idxPedErro !== -1 && String(dados[i][idxPedErro]).trim() !== "N/A" ? String(dados[i][idxPedErro]).trim() : "",
+          nf: idxNFErro !== -1 && String(dados[i][idxNFErro]).trim() !== "N/A" ? String(dados[i][idxNFErro]).trim() : ""
         });
       }
     }

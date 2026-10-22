@@ -38,6 +38,10 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
           <span class="nav-text">Painel Gerencial</span>
         </button>
+        <button type="button" class="nav-item" data-target="view-fora-malha">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"></path><path d="M3 8l9 5 9-5M12 13v8"></path><circle cx="18" cy="18" r="4.5" fill="var(--bg-sidebar, transparent)"></circle><path d="M18 16v2.2M18 20.1v.1"></path></svg>
+          <span class="nav-text">Produtos fora da malha</span>
+        </button>
       </nav>
 
       <div class="sidebar-section">
@@ -285,6 +289,24 @@
         </div>
 
       </div> <!-- FIM SECÇÃO: AUDITORIA DE CARGAS -->
+
+      <!-- SECÇÃO: PRODUTOS FORA DA MALHA (Pedido/NF informados e prazo pelo tracking Intelipost) -->
+      <div id="view-fora-malha" class="view-section" style="display: none;">
+        <div class="card-container fm-topo">
+          <div class="input-group campo-formulario fm-campo-carga">
+            <label for="cargaForaMalha">Carga</label>
+            <select id="cargaForaMalha">
+              <option value="">A carregar cargas…</option>
+            </select>
+          </div>
+          <button type="button" id="btnAtualizarForaMalha" class="btn-secundario" title="Ler outra vez as etiquetas fora da malha desta carga">Atualizar</button>
+          <p class="ajuda-texto fm-ajuda">Informe o <strong>Pedido</strong> e a <strong>NF</strong> de cada etiqueta bipada fora da malha e confirme.
+            O sistema consulta o tracking Intelipost e verifica o prazo de devolução (<span id="prazoForaMalha">35</span> dias a contar da criação da carga<span id="referenciaForaMalha"></span>).
+            O resultado aparece também no painel <em>Divergências (fora da carga)</em> da conferência.</p>
+        </div>
+        <div id="msgForaMalha" class="msg-progresso" style="display: none;"></div>
+        <div id="listaForaMalha" class="fm-lista" aria-live="polite"></div>
+      </div>
 
       <!-- SECÇÃO: PAINEL GERENCIAL -->
       <div id="view-gerencial" class="view-section" style="display: none;">
@@ -669,6 +691,7 @@
     <?!= include('Script_Cruzamento'); ?>
     <?!= include('Script_Julgamento'); ?>
     <?!= include('Script_Romaneio'); ?>
+    <?!= include('Script_ForaMalha'); ?>
     <?!= include('Script'); ?>
   </body>
 </html>

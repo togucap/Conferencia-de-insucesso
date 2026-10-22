@@ -78,7 +78,7 @@
           });
 
           j.divergencias.forEach(d => {
-              linhasConsolidado.push(["Fora da malha", "-", "N/A", "N/A", d.etiqueta, "N/A",
+              linhasConsolidado.push(["Fora da malha", "-", d.nf || "N/A", d.pedido || "N/A", d.etiqueta, "N/A",
                   "Bipado fora da carga", "N/A", d.veredito, "",
                   d.outrasCargas.length ? "Encontrada na carga " + d.outrasCargas.join(", ") : ""]);
           });

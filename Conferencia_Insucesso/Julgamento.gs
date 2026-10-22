@@ -95,7 +95,9 @@ function julgarCargaMotor_(entrada) {
       const avalDiv = val(l, iAval).toLowerCase();
       divergencias.push({ etiqueta, linha, outrasCargas: listaOutras(val(l, iOutras)),
         naoReceber: avalDiv === 'não receber' || avalDiv === 'nao receber',
-        receber: avalDiv.indexOf('receber') === 0 ? val(l, iAval) : '' });
+        receber: avalDiv.indexOf('receber') === 0 ? val(l, iAval) : '',
+        // Pedido/NF informados na tela "Produtos fora da malha" ("N/A" = não informado)
+        pedido: pedido === 'N/A' ? '' : pedido, nf: val(l, iNF) === 'N/A' ? '' : val(l, iNF) });
       return;
     }
 

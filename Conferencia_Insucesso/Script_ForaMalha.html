@@ -1,0 +1,191 @@
+<script>
+  // ============================================================================
+  // SCRIPT: TELA "PRODUTOS FORA DA MALHA"
+  // Etiquetas bipadas fora da malha de uma carga. O operador informa o Pedido e a NF e confirma:
+  // o servidor (verificarPrazoInformado, em Tracking.gs) grava-os na linha da divergência, consulta o
+  // tracking Intelipost, confere a NF e avalia o prazo de devolução. O resultado fica na "Avaliação"
+  // da divergência e aparece no painel "Divergências (fora da carga)" da conferência.
+  // ============================================================================
+  (function() {
+    const seletor = document.getElementById('cargaForaMalha');
+    const lista = document.getElementById('listaForaMalha');
+    const msg = document.getElementById('msgForaMalha');
+    const btnAtualizar = document.getElementById('btnAtualizarForaMalha');
+    const refTexto = document.getElementById('referenciaForaMalha');
+    if (!seletor || !lista) return;
+
+    let cargaTela = '';
+    let pedidoLista = 0;          // ignora respostas de cargas que já não estão selecionadas
+    const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    function mensagem(texto, tipo) {
+      if (!msg) return;
+      msg.style.display = texto ? 'block' : 'none';
+      msg.className = 'msg-progresso' + (tipo === 'erro' ? ' erro' : '');
+      msg.textContent = texto || '';
+    }
+
+    // ---- Seletor de carga ------------------------------------------------------
+    window.abrirTelaForaMalha = function() {
+      google.script.run
+        .withSuccessHandler(function(abas) {
+          const anterior = cargaTela || (typeof cargaAtual !== 'undefined' ? cargaAtual : '');
+          seletor.innerHTML = '<option value="">Selecione a carga…</option>' + (abas || []).map(a => {
+            const nome = typeof a === 'string' ? a : a.nome;
+            const fin = typeof a === 'string' ? false : a.finalizada;
+            return `<option value="${esc(nome)}">${esc(nome)}${fin ? ' (finalizada)' : ''}</option>`;
+          }).join('');
+          if (anterior && Array.from(seletor.options).some(o => o.value === anterior)) {
+            seletor.value = anterior;
+            carregar(anterior);
+          } else {
+            lista.innerHTML = '';
+          }
+        })
+        .withFailureHandler(function(e) { mensagem('Não foi possível ler as cargas: ' + e.message, 'erro'); })
+        .getAbasPlanilha();
+    };
+
+    seletor.addEventListener('change', function() { carregar(seletor.value); });
+    if (btnAtualizar) btnAtualizar.addEventListener('click', function() { if (seletor.value) carregar(seletor.value); });
+
+    // ---- Lista -----------------------------------------------------------------
+    function carregar(carga) {
+      cargaTela = carga;
+      lista.innerHTML = '';
+      if (refTexto) refTexto.textContent = '';
+      if (!carga) { mensagem(''); return; }
+      const pedido = ++pedidoLista;
+      mensagem('A ler as etiquetas fora da malha da carga ' + carga + '…');
+      google.script.run
+        .withSuccessHandler(function(r) {
+          if (pedido !== pedidoLista) return;
+          mensagem('');
+          desenhar(r);
+        })
+        .withFailureHandler(function(e) {
+          if (pedido !== pedidoLista) return;
+          mensagem('Falha ao ler a carga: ' + e.message, 'erro');
+        })
+        .listarForaDaMalhaCarga(carga);
+    }
+
+    function desenhar(r) {
+      if (refTexto) refTexto.textContent = r.referencia ? ` — criada em ${r.referencia}` : '';
+      const itens = r.itens || [];
+      if (!itens.length) {
+        lista.innerHTML = '<div class="card-container fm-vazio">Nenhum produto foi bipado fora da malha nesta carga.</div>';
+        return;
+      }
+      const avaliados = itens.filter(i => i.avaliacao).length;
+      const bloqueados = itens.filter(i => /^n[ãa]o receber$/i.test(i.avaliacao)).length;
+      lista.innerHTML =
+        `<div class="fm-contagem">${itens.length} etiqueta(s) fora da malha · ${avaliados} avaliada(s)` +
+        (bloqueados ? ` · <strong class="fm-cor-perigo">${bloqueados} NÃO RECEBER</strong>` : '') +
+        (r.finalizada ? ' · <span class="fm-sub">carga finalizada</span>' : '') + `</div>` +
+        itens.map(htmlItem).join('');
+    }
+
+    function htmlItem(i) {
+      const pedido = i.pedido || i.pedidoSugerido || '';
+      const nf = i.nf || i.nfSugerida || '';
+      const sugerido = !i.pedido && i.pedidoSugerido;
+      return `
+        <div class="card-container fm-item ${classeResultado(i.avaliacao)}" data-etiqueta="${esc(i.etiqueta)}">
+          <div class="fm-etiqueta">
+            <span class="fm-rotulo">Etiqueta</span>
+            <strong>${esc(i.etiqueta)}</strong>
+            <span class="fm-sub">${i.hora ? 'Bipada em ' + esc(i.hora) : 'Fora da malha'}${i.outrasCargas.length ? ' · <span class="outra-carga">Pertence à carga ' + esc(i.outrasCargas.join(', ')) + '</span>' : ''}</span>
+          </div>
+          <label class="fm-campo">
+            <span class="fm-rotulo">Pedido</span>
+            <input type="text" class="fm-pedido" inputmode="numeric" autocomplete="off" value="${esc(pedido)}" placeholder="Nº do pedido">
+          </label>
+          <label class="fm-campo">
+            <span class="fm-rotulo">NF</span>
+            <input type="text" class="fm-nf" inputmode="numeric" autocomplete="off" value="${esc(nf)}" placeholder="Nº da NF">
+          </label>
+          <button type="button" class="btn-brand fm-confirmar">${i.avaliacao ? 'Verificar de novo' : 'Confirmar'}</button>
+          <div class="fm-resultado">${sugerido ? `<span class="fm-sub">Pedido e NF sugeridos da carga ${esc(i.outrasCargas[0] || '')}: confira antes de confirmar.</span>` : ''}${htmlResultado(i.avaliacao, i.nota)}</div>
+        </div>`;
+    }
+
+    function classeResultado(aval) {
+      if (/^n[ãa]o receber$/i.test(aval || '')) return 'fm-nao-receber';
+      if (/sem tracking/i.test(aval || '')) return 'fm-sem-tracking';
+      if (/^receber/i.test(aval || '')) return 'fm-receber';
+      return '';
+    }
+
+    function htmlResultado(aval, nota) {
+      if (!aval) return '';
+      const confere = !/ATENÇÃO/.test(nota || '');
+      return `<span class="fm-chip ${classeResultado(aval)}">${esc(String(aval).toUpperCase())}</span>` +
+        // O aviso da NF já tem linha própria abaixo (na planilha fica no motivo)
+        (nota ? `<span class="fm-nota">${esc(String(nota).replace(/\s*ATENÇÃO:.*$/, ''))}</span>` : '') +
+        (confere ? '' : '<span class="fm-alerta-nf">A NF informada não consta no tracking deste pedido. Confira o pedido e a NF.</span>');
+    }
+
+    // ---- Confirmação -------------------------------------------------------------
+    lista.addEventListener('click', function(e) {
+      const btn = e.target.closest('.fm-confirmar');
+      if (btn) confirmar(btn.closest('.fm-item'));
+    });
+    lista.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      const item = e.target.closest('.fm-item');
+      if (!item) return;
+      e.preventDefault();
+      if (e.target.classList.contains('fm-pedido')) item.querySelector('.fm-nf').focus();
+      else if (e.target.classList.contains('fm-nf')) confirmar(item);
+    });
+
+    function confirmar(item) {
+      if (!item || item.classList.contains('fm-a-verificar')) return;
+      const etiqueta = item.dataset.etiqueta;
+      const campoPed = item.querySelector('.fm-pedido');
+      const campoNF = item.querySelector('.fm-nf');
+      const resultado = item.querySelector('.fm-resultado');
+      const btn = item.querySelector('.fm-confirmar');
+      const pedido = campoPed.value.replace(/\s+/g, '');
+      const nf = campoNF.value.replace(/\s+/g, '');
+      if (!pedido || !nf) {
+        resultado.innerHTML = `<span class="fm-alerta-nf">Preencha o ${!pedido ? 'Pedido' : 'NF'} antes de confirmar.</span>`;
+        (!pedido ? campoPed : campoNF).focus();
+        return;
+      }
+      const carga = cargaTela;
+      item.classList.add('fm-a-verificar');
+      [campoPed, campoNF, btn].forEach(el => { el.disabled = true; });
+      resultado.innerHTML = '<span class="prazo-pendente">A consultar o tracking Intelipost…</span>';
+
+      google.script.run
+        .withSuccessHandler(function(r) {
+          item.classList.remove('fm-a-verificar', 'fm-nao-receber', 'fm-receber', 'fm-sem-tracking');
+          [campoPed, campoNF, btn].forEach(el => { el.disabled = false; });
+          btn.textContent = 'Verificar de novo';
+          if (r.avaliacao) item.classList.add(classeResultado(r.avaliacao));
+          resultado.innerHTML = r.avaliacao
+            ? htmlResultado(r.avaliacao, r.nota)
+            : `<span class="fm-alerta-nf">Prazo não verificado${r.erro ? ': ' + esc(r.erro) : ''}. Tente de novo.</span>`;
+          // Aviso na própria carga (se estiver aberta na conferência neste navegador)
+          if (typeof cargaAtual !== 'undefined' && cargaAtual === carga && typeof registrarPedidoNfInformado === 'function') {
+            registrarPedidoNfInformado(etiqueta, r.pedido, r.nf);
+          }
+          if (r.avaliacao && typeof cargaAtual !== 'undefined' && cargaAtual === carga) {
+            if (/^n[ãa]o receber$/i.test(r.avaliacao)) {
+              if (typeof marcarDivergenciaNaoReceber === 'function') marcarDivergenciaNaoReceber(etiqueta, { nota: r.nota });
+            } else if (typeof marcarDivergenciaReceber === 'function') {
+              marcarDivergenciaReceber(etiqueta, r.avaliacao, r.nota);
+            }
+          }
+        })
+        .withFailureHandler(function(e) {
+          item.classList.remove('fm-a-verificar');
+          [campoPed, campoNF, btn].forEach(el => { el.disabled = false; });
+          resultado.innerHTML = `<span class="fm-alerta-nf">${esc(e.message)}</span>`;
+        })
+        .verificarPrazoInformado(carga, etiqueta, pedido, nf);
+    }
+  })();
+</script>

@@ -53,7 +53,7 @@ const TRACK_CONFIG = {
 
 const TRACK_ABA_ARQUIVOS = '_cruz_trk_arquivos';
 const TRACK_ABA_RESULTADOS = '_cruz_trk_resultados';
-const TRACK_CAB_RESULTADOS = ['Pedido', 'Modificado', 'Primeira devolução', 'Primeira recusa', 'Promessa', 'Planilha'];
+const TRACK_CAB_RESULTADOS = ['Pedido', 'Modificado', 'Primeira devolução', 'Primeira recusa', 'Promessa', 'Planilha', 'NFs'];
 
 // ==========================================
 // AVALIAÇÃO DE UM JSON (função pura)
@@ -85,7 +85,11 @@ function avaliarTrackingIntelipost_(json) {
 
   let primeiraDevolucao = null;
   let primeiraRecusa = null;
+  const nfs = [];
   (c.shipment_order_volume_array || []).forEach(vol => {
+    const nota = vol.shipment_order_volume_invoice || {};
+    const numero = String(nota.invoice_number == null ? '' : nota.invoice_number).trim();
+    if (numero && nfs.indexOf(numero) < 0) nfs.push(numero);
     (vol.shipment_order_volume_state_history_array || []).forEach(ev => {
       const data = ms(ev.event_date, ev.event_date_iso) || ms(ev.created, ev.created_iso);
       if (!data) return;
@@ -105,7 +109,8 @@ function avaliarTrackingIntelipost_(json) {
     modificado: ms(c.modified, c.modified_iso) || 0,
     primeiraDevolucao,
     primeiraRecusa,
-    promessa: ms(c.estimated_delivery_date, c.estimated_delivery_date_iso)
+    promessa: ms(c.estimated_delivery_date, c.estimated_delivery_date_iso),
+    nfs   // números das notas fiscais dos volumes (invoice_number)
   };
 }
 
@@ -201,7 +206,7 @@ function lerPlanilhaTracking_(arq, pedidos) {
       if (!texto.trim()) return;
       try {
         const av = avaliarTrackingIntelipost_(texto);
-        resultados.push([pedido, av.modificado || 0, av.primeiraDevolucao || '', av.primeiraRecusa || '', av.promessa || '', arq.nome]);
+        resultados.push([pedido, av.modificado || 0, av.primeiraDevolucao || '', av.primeiraRecusa || '', av.promessa || '', arq.nome, (av.nfs || []).join(',')]);
       } catch (e) {
         errosJson++;
       }
@@ -272,7 +277,8 @@ function lerResultadosTracking_(ss) {
   const num = v => { const n = Number(v); return isFinite(n) && n > 0 ? n : null; };
   aba.getRange(2, 1, aba.getLastRow() - 1, TRACK_CAB_RESULTADOS.length).getValues().forEach(l => {
     const pedido = limparPedidoTracking_(l[0]);
-    const av = { modificado: num(l[1]) || 0, primeiraDevolucao: num(l[2]), primeiraRecusa: num(l[3]), promessa: num(l[4]), planilha: String(l[5]) };
+    const av = { modificado: num(l[1]) || 0, primeiraDevolucao: num(l[2]), primeiraRecusa: num(l[3]), promessa: num(l[4]), planilha: String(l[5]),
+      nfs: String(l[6] == null ? '' : l[6]).split(',').filter(Boolean) };
     if (!mapa[pedido] || av.modificado > mapa[pedido].modificado) mapa[pedido] = av;
   });
   return mapa;
@@ -469,7 +475,9 @@ function avaliacaoPrazo_(r, erroTracking) {
 /** Motivo da avaliação (nota da célula e texto no ecrã). */
 function notaPrazo_(r, referencia, origemReferencia) {
   const C = TRACK_CONFIG;
-  const origem = `NF ${r.nf || '-'} (pedido ${r.pedido || '-'}) da carga ${r.cargaOrigem || '-'}`;
+  const origem = r.informadoPor
+    ? `NF ${r.nf || '-'} (pedido ${r.pedido || '-'}) informada por ${r.informadoPor} em ${r.informadoEm}`
+    : `NF ${r.nf || '-'} (pedido ${r.pedido || '-'}) da carga ${r.cargaOrigem || '-'}`;
   const ref = `${referencia} (${origemReferencia})`;
   switch (r.situacao) {
     case 'NAO_RECEBER':
@@ -526,12 +534,13 @@ function marcarAvaliacaoDivergencias_(aba, porEtiqueta) {
  * @param {Set<string>} pedidos
  * @return {Object<string, {modificado, primeiraDevolucao, primeiraRecusa, promessa, planilha}>}
  */
-function buscarTrackingPedidos_(pedidos) {
+function buscarTrackingPedidos_(pedidos, opcoes) {
   const mapa = {};
   const faltam = new Set();
   const cache = cacheTracking_();
+  const semCache = !!(opcoes && opcoes.semCache);   // consulta pedida pelo operador: sempre o tracking atual
   pedidos.forEach(p => {
-    const guardado = cache ? cache.get('trkped:' + p) : null;
+    const guardado = cache && !semCache ? cache.get('trkped:' + p) : null;
     if (guardado === null || guardado === undefined) { faltam.add(p); return; }
     const v = JSON.parse(guardado);
     if (v) mapa[p] = v;
@@ -544,7 +553,8 @@ function buscarTrackingPedidos_(pedidos) {
     try { lida = lerPlanilhaTracking_(arq, faltam); }
     catch (e) { console.warn('Tracking: planilha ' + arq.nome + ' não lida: ' + e.message); return; }
     lida.resultados.forEach(l => {
-      const av = { modificado: num(l[1]) || 0, primeiraDevolucao: num(l[2]), primeiraRecusa: num(l[3]), promessa: num(l[4]), planilha: String(l[5]) };
+      const av = { modificado: num(l[1]) || 0, primeiraDevolucao: num(l[2]), primeiraRecusa: num(l[3]), promessa: num(l[4]), planilha: String(l[5]),
+        nfs: String(l[6] == null ? '' : l[6]).split(',').filter(Boolean) };
       if (!mapa[l[0]] || av.modificado > mapa[l[0]].modificado) mapa[l[0]] = av;
     });
   });
@@ -564,4 +574,166 @@ function dataCurtaTracking_(ms) {
   const d = new Date(ms + TRACK_CONFIG.FUSO_MS);
   const p = n => String(n).padStart(2, '0');
   return p(d.getUTCDate()) + '/' + p(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear();
+}
+
+// ==========================================
+// TELA "PRODUTOS FORA DA MALHA"
+// ==========================================
+// Lista as etiquetas bipadas fora da malha de uma carga. O operador informa o Pedido e a NF de cada
+// uma e confirma: o Pedido/NF ficam gravados na linha da divergência, o tracking Intelipost do pedido
+// é consultado (a NF é conferida com as notas do JSON) e o prazo segue a mesma regra das etiquetas
+// de outra carga (PRAZO_DEVOLUCAO_DIAS a contar da criação da carga). O resultado fica na "Avaliação"
+// (com o motivo na nota) e aparece no painel "Divergências (fora da carga)" da conferência.
+
+/** Colunas usadas pela tela (índices base 0; -1 se não existir). */
+function colunasForaDaMalha_(cabecalho) {
+  const cab = cabecalho.map(c => String(c).trim().toLowerCase());
+  const col = function () {
+    for (let i = 0; i < arguments.length; i++) if (cab.indexOf(arguments[i]) >= 0) return cab.indexOf(arguments[i]);
+    return -1;
+  };
+  return {
+    merc: col('mercadoria código', 'mercadoria codigo'),
+    status: col('status conferência', 'status conferencia'),
+    pedido: col('número do pedido faturado', 'numero do pedido faturado'),
+    nf: col('nota fiscal', 'nf'),
+    hora: col('data/hora conferência', 'data/hora conferencia'),
+    outras: col('outras cargas'),
+    aval: col('avaliação', 'avaliacao')
+  };
+}
+
+const ehLinhaDivergencia_ = status => {
+  status = String(status || '');
+  return status.indexOf('Divergência') >= 0 || status.indexOf('Não Encontrado') >= 0;
+};
+const valorInformado_ = v => { v = String(v == null ? '' : v).trim(); return v === 'N/A' ? '' : v; };
+
+/**
+ * Etiquetas fora da malha da carga, uma por etiqueta.
+ * @return {{carga, finalizada, referencia, origemReferencia, itens: {etiqueta, hora, pedido, nf,
+ *   pedidoSugerido, nfSugerida, outrasCargas, avaliacao, nota}[]}}
+ */
+function listarForaDaMalhaCarga(nomeAba) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(nomeAba);
+  if (!aba) throw new Error('A carga "' + nomeAba + '" não existe.');
+  const ref = dataCriacaoCarga_(aba);
+  const saida = { carga: nomeAba, finalizada: _cargaFinalizada_(aba), referencia: dataCurtaTracking_(ref.ms),
+    origemReferencia: ref.origem, itens: [] };
+  const ultimaLinha = aba.getLastRow(), ultimaColuna = aba.getLastColumn();
+  if (ultimaLinha < 2 || ultimaColuna < 1) return saida;
+
+  const dados = aba.getRange(1, 1, ultimaLinha, ultimaColuna).getDisplayValues();
+  const c = colunasForaDaMalha_(dados[0]);
+  if (c.merc < 0 || c.status < 0) return saida;
+  const notas = c.aval >= 0 ? aba.getRange(2, c.aval + 1, ultimaLinha - 1, 1).getNotes() : [];
+  const vistas = {};
+  for (let i = 1; i < dados.length; i++) {
+    const l = dados[i];
+    if (!ehLinhaDivergencia_(l[c.status])) continue;
+    const etiqueta = String(l[c.merc]).trim();
+    if (!etiqueta || vistas[etiqueta]) continue;
+    vistas[etiqueta] = true;
+    const item = {
+      etiqueta,
+      hora: c.hora >= 0 ? String(l[c.hora]).trim() : '',
+      pedido: c.pedido >= 0 ? valorInformado_(l[c.pedido]) : '',
+      nf: c.nf >= 0 ? valorInformado_(l[c.nf]) : '',
+      outrasCargas: c.outras >= 0 ? String(l[c.outras]).split(/\s*[,;]\s*/).filter(Boolean) : [],
+      avaliacao: c.aval >= 0 ? String(l[c.aval]).trim() : '',
+      nota: notas[i - 1] ? String(notas[i - 1][0] || '') : '',
+      pedidoSugerido: '', nfSugerida: ''
+    };
+    // Etiqueta que existe noutra carga: sugere o Pedido/NF de lá (o operador confirma ou corrige)
+    if (!item.pedido && item.outrasCargas.length) {
+      try {
+        const o = _localizarEtiquetaEmOutrasCargas_(ss, etiqueta, nomeAba)
+          .filter(x => x.pedido && x.pedido !== 'N/A')
+          .sort((a, b) => _parseDataDoNome(b.carga) - _parseDataDoNome(a.carga))[0];
+        if (o) { item.pedidoSugerido = o.pedido; item.nfSugerida = o.nf; }
+      } catch (e) { /* sem sugestão */ }
+    }
+    saida.itens.push(item);
+  }
+  return saida;
+}
+
+/**
+ * Confirmação do operador: grava Pedido/NF na divergência, consulta o tracking e avalia o prazo.
+ * @return {{etiqueta, situacao, avaliacao, nota, pedido, nf, dias, primeiraDevolucao, planilha,
+ *   nfConfere: boolean|null, nfsTracking: string[], referencia, erro}}
+ */
+function verificarPrazoInformado(nomeAba, etiqueta, pedido, nf) {
+  const C = TRACK_CONFIG;
+  etiqueta = String(etiqueta || '').trim();
+  pedido = limparPedidoTracking_(pedido).replace(/\s+/g, '');
+  nf = String(nf == null ? '' : nf).replace(/\s+/g, '');
+  if (!etiqueta) throw new Error('Etiqueta em falta.');
+  if (!pedido) throw new Error('Informe o número do pedido.');
+  if (!nf) throw new Error('Informe o número da NF.');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName(nomeAba);
+  if (!aba) throw new Error('A carga "' + nomeAba + '" não existe.');
+  const ultimaLinha = aba.getLastRow();
+  const dados = aba.getRange(1, 1, Math.max(1, ultimaLinha), Math.max(1, aba.getLastColumn())).getDisplayValues();
+  const c = colunasForaDaMalha_(dados[0]);
+  const linhas = [];
+  for (let i = 1; i < dados.length; i++) {
+    if (c.merc >= 0 && c.status >= 0 && String(dados[i][c.merc]).trim() === etiqueta && ehLinhaDivergencia_(dados[i][c.status])) linhas.push(i + 1);
+  }
+  if (!linhas.length) throw new Error('A etiqueta ' + etiqueta + ' não consta como fora da malha na carga ' + nomeAba + '.');
+
+  // 1. Pedido e NF informados ficam na linha da divergência (como texto: sem zeros perdidos)
+  let largura = dados[0].length;
+  const coluna = (idx, titulo) => {
+    if (idx >= 0) return idx;
+    aba.getRange(1, largura + 1).setValue(titulo).setFontWeight('bold');
+    return largura++;
+  };
+  const colPed = coluna(c.pedido, 'Número do Pedido Faturado');
+  const colNF = coluna(c.nf, 'Nota Fiscal');
+  linhas.forEach(n => {
+    aba.getRange(n, colPed + 1).setNumberFormat('@').setValue(pedido);
+    aba.getRange(n, colNF + 1).setNumberFormat('@').setValue(nf);
+  });
+
+  // 2. Tracking atual do pedido
+  const ref = dataCriacaoCarga_(aba);
+  let usuario = '';
+  try { usuario = Session.getActiveUser().getEmail(); } catch (e) { /* sem e-mail */ }
+  const r = { etiqueta, situacao: 'SEM_TRACKING', pedido, nf, cargaOrigem: '', dias: null, primeiraDevolucao: '', planilha: '',
+    nfConfere: null, nfsTracking: [], referencia: dataCurtaTracking_(ref.ms), erro: '',
+    informadoPor: usuario || 'operador', informadoEm: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') };
+  let tracking = {};
+  try { tracking = buscarTrackingPedidos_(new Set([pedido]), { semCache: true }); }
+  catch (e) { r.erro = 'Sem acesso ao drive de tracking: ' + e.message; }
+
+  const av = tracking[pedido];
+  if (av) {
+    const d = decidirTracking_(av, ref.ms);
+    r.dias = d.dias;
+    r.primeiraDevolucao = dataCurtaTracking_(av.primeiraDevolucao);
+    r.planilha = av.planilha || '';
+    r.situacao = d.naoReceber ? 'NAO_RECEBER' : (d.semDevolucao ? 'SEM_DEVOLUCAO' : 'PRAZO_OK');
+    // A NF informada tem de ser uma das notas do tracking deste pedido (sem zeros à esquerda)
+    const semZeros = v => String(v).replace(/^0+/, '');
+    r.nfsTracking = (av.nfs || []).slice();
+    if (r.nfsTracking.length) r.nfConfere = r.nfsTracking.some(x => semZeros(x) === semZeros(nf));
+  }
+
+  // 3. Avaliação + motivo na linha da divergência
+  r.avaliacao = avaliacaoPrazo_(r, !!r.erro);
+  if (r.avaliacao) {
+    r.nota = notaPrazo_(r, r.referencia, ref.origem);
+    if (r.nfConfere === false) r.nota += ` ATENÇÃO: a NF ${nf} não consta no tracking deste pedido (NFs: ${r.nfsTracking.join(', ')}). Confira o pedido e a NF.`;
+    const porEtiqueta = {};
+    porEtiqueta[etiqueta] = { valor: r.avaliacao, nota: r.nota };
+    marcarAvaliacaoDivergencias_(aba, porEtiqueta);
+  } else {
+    r.nota = '';
+  }
+  delete r.informadoEm;
+  return r;
 }

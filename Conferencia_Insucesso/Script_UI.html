@@ -108,6 +108,10 @@
     'view-gerencial': {
       titulo: 'Painel Gerencial',
       subtitulo: 'Visão estratégica e indicadores globais da operação'
+    },
+    'view-fora-malha': {
+      titulo: 'Produtos fora da malha',
+      subtitulo: 'Pedido e NF das etiquetas fora da carga e prazo de devolução pelo tracking Intelipost'
     }
   };
 
@@ -135,6 +139,9 @@
       
       if (targetId === 'view-gerencial') {
           carregarDashboardVolume(false);
+      }
+      if (targetId === 'view-fora-malha' && typeof abrirTelaForaMalha === 'function') {
+          abrirTelaForaMalha();
       }
     });
   });

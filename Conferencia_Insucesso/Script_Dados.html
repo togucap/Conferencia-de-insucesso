@@ -74,16 +74,7 @@
           });
           if (listaNaoEncontrados && msgErros) listaNaoEncontrados.innerHTML = msgErros;
           // Resultado do prazo já gravado na planilha (não se consulta o tracking outra vez)
-          erros.forEach(e => {
-            const et = String(e.codigo).trim();
-            const aval = String(e.avaliacao || '').trim();
-            const avalMin = aval.toLowerCase();
-            if ((avalMin === 'não receber' || avalMin === 'nao receber') && typeof marcarDivergenciaNaoReceber === 'function') {
-              marcarDivergenciaNaoReceber(et, { nota: e.notaAvaliacao, cargaOrigem: (e.outrasCargas || [])[0] });
-            } else if (avalMin.indexOf('receber') === 0 && typeof marcarDivergenciaReceber === 'function') {
-              marcarDivergenciaReceber(et, aval, e.notaAvaliacao);
-            }
-          });
+          if (typeof aplicarAvaliacoesDivergencias === 'function') aplicarAvaliacoesDivergencias(erros);
           if (aVerificar.length && selectAbas.dataset.finalizada !== 'true' && typeof agendarVerificacaoPrazo === 'function') {
             agendarVerificacaoPrazo(aVerificar);
           }
