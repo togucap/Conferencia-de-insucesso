@@ -77,13 +77,37 @@
         lista.innerHTML = '<div class="card-container fm-vazio">Nenhum produto foi bipado fora da malha nesta carga.</div>';
         return;
       }
-      const avaliados = itens.filter(i => i.avaliacao).length;
-      const bloqueados = itens.filter(i => /^n[ãa]o receber$/i.test(i.avaliacao)).length;
       lista.innerHTML =
-        `<div class="fm-contagem">${itens.length} etiqueta(s) fora da malha · ${avaliados} avaliada(s)` +
-        (bloqueados ? ` · <strong class="fm-cor-perigo">${bloqueados} NÃO RECEBER</strong>` : '') +
-        (r.finalizada ? ' · <span class="fm-sub">carga finalizada</span>' : '') + `</div>` +
+        `<div class="fm-acoes">
+           <div class="fm-contagem" data-finalizada="${r.finalizada ? '1' : ''}"></div>
+           <span class="fm-lote-estado" aria-live="polite"></span>
+           <button type="button" class="btn-brand fm-confirmar-todas">Confirmar todas preenchidas</button>
+         </div>` +
         itens.map(htmlItem).join('');
+      atualizarContagem();
+    }
+
+    /** Pedido|NF confirmados pela última vez (para não repetir a consulta se nada mudou). */
+    const chaveCampos = item => item.querySelector('.fm-pedido').value.replace(/\s+/g, '') + '|' + item.querySelector('.fm-nf').value.replace(/\s+/g, '');
+    const preenchido = item => !!(item.querySelector('.fm-pedido').value.trim() && item.querySelector('.fm-nf').value.trim());
+    const porConfirmar = () => Array.from(lista.querySelectorAll('.fm-item'))
+      .filter(item => preenchido(item) && !item.classList.contains('fm-a-verificar') && item.dataset.confirmado !== chaveCampos(item));
+
+    function atualizarContagem() {
+      const itens = Array.from(lista.querySelectorAll('.fm-item'));
+      const caixa = lista.querySelector('.fm-contagem');
+      if (!caixa) return;
+      const avaliados = itens.filter(i => /fm-(nao-receber|receber|sem-tracking)/.test(i.className)).length;
+      const bloqueados = itens.filter(i => i.classList.contains('fm-nao-receber')).length;
+      caixa.innerHTML = `${itens.length} etiqueta(s) fora da malha · ${avaliados} avaliada(s)` +
+        (bloqueados ? ` · <strong class="fm-cor-perigo">${bloqueados} NÃO RECEBER</strong>` : '') +
+        (caixa.dataset.finalizada ? ' · <span class="fm-sub">carga finalizada</span>' : '');
+      const btnTodas = lista.querySelector('.fm-confirmar-todas');
+      if (btnTodas && !btnTodas.dataset.emCurso) {
+        const n = porConfirmar().length;
+        btnTodas.textContent = `Confirmar todas preenchidas (${n})`;
+        btnTodas.disabled = n === 0;
+      }
     }
 
     function htmlItem(i) {
@@ -91,7 +115,7 @@
       const nf = i.nf || i.nfSugerida || '';
       const sugerido = !i.pedido && i.pedidoSugerido;
       return `
-        <div class="card-container fm-item ${classeResultado(i.avaliacao)}" data-etiqueta="${esc(i.etiqueta)}">
+        <div class="card-container fm-item ${classeResultado(i.avaliacao)}" data-etiqueta="${esc(i.etiqueta)}" data-confirmado="${i.avaliacao && i.pedido ? esc(i.pedido + '|' + i.nf) : ''}">
           <div class="fm-etiqueta">
             <span class="fm-rotulo">Etiqueta</span>
             <strong>${esc(i.etiqueta)}</strong>
@@ -128,9 +152,36 @@
 
     // ---- Confirmação -------------------------------------------------------------
     lista.addEventListener('click', function(e) {
+      if (e.target.closest('.fm-confirmar-todas')) { confirmarTodas(); return; }
       const btn = e.target.closest('.fm-confirmar');
       if (btn) confirmar(btn.closest('.fm-item'));
     });
+    lista.addEventListener('input', function(e) {
+      if (e.target.closest('.fm-item')) atualizarContagem();
+    });
+
+    // Uma de cada vez (cada uma consulta o tracking e grava na planilha)
+    async function confirmarTodas() {
+      const btnTodas = lista.querySelector('.fm-confirmar-todas');
+      const estado = lista.querySelector('.fm-lote-estado');
+      const fila = porConfirmar();
+      if (!btnTodas || !fila.length) return;
+      const carga = cargaTela;
+      btnTodas.dataset.emCurso = '1';
+      btnTodas.disabled = true;
+      let feitas = 0, erros = 0, naoReceber = 0;
+      for (let k = 0; k < fila.length; k++) {
+        if (cargaTela !== carga || !document.body.contains(fila[k])) break;   // trocou de carga
+        btnTodas.textContent = `A confirmar ${k + 1} de ${fila.length}…`;
+        const r = await confirmar(fila[k]);
+        if (!r) erros++; else { feitas++; if (/^n[ãa]o receber$/i.test(r.avaliacao || '')) naoReceber++; }
+      }
+      delete btnTodas.dataset.emCurso;
+      if (estado) estado.innerHTML = `${feitas} confirmada(s)` +
+        (naoReceber ? ` · <strong class="fm-cor-perigo">${naoReceber} NÃO RECEBER</strong>` : '') +
+        (erros ? ` · <span class="fm-alerta-nf">${erros} com erro (ver na etiqueta)</span>` : '');
+      atualizarContagem();
+    }
     lista.addEventListener('keydown', function(e) {
       if (e.key !== 'Enter') return;
       const item = e.target.closest('.fm-item');
@@ -140,8 +191,13 @@
       else if (e.target.classList.contains('fm-nf')) confirmar(item);
     });
 
+    /** Confirma uma etiqueta. Devolve uma Promise com o resultado do servidor (null se não avaliou). */
     function confirmar(item) {
-      if (!item || item.classList.contains('fm-a-verificar')) return;
+      return new Promise(function(fim) { confirmarItem(item, fim); });
+    }
+
+    function confirmarItem(item, fim) {
+      if (!item || item.classList.contains('fm-a-verificar')) return fim(null);
       const etiqueta = item.dataset.etiqueta;
       const campoPed = item.querySelector('.fm-pedido');
       const campoNF = item.querySelector('.fm-nf');
@@ -152,12 +208,13 @@
       if (!pedido || !nf) {
         resultado.innerHTML = `<span class="fm-alerta-nf">Preencha o ${!pedido ? 'Pedido' : 'NF'} antes de confirmar.</span>`;
         (!pedido ? campoPed : campoNF).focus();
-        return;
+        return fim(null);
       }
       const carga = cargaTela;
       item.classList.add('fm-a-verificar');
       [campoPed, campoNF, btn].forEach(el => { el.disabled = true; });
       resultado.innerHTML = '<span class="prazo-pendente">A consultar o tracking Intelipost…</span>';
+      atualizarContagem();
 
       google.script.run
         .withSuccessHandler(function(r) {
@@ -179,11 +236,16 @@
               marcarDivergenciaReceber(etiqueta, r.avaliacao, r.nota);
             }
           }
+          if (r.avaliacao) item.dataset.confirmado = pedido + '|' + nf;
+          atualizarContagem();
+          fim(r.avaliacao ? r : null);
         })
         .withFailureHandler(function(e) {
           item.classList.remove('fm-a-verificar');
           [campoPed, campoNF, btn].forEach(el => { el.disabled = false; });
           resultado.innerHTML = `<span class="fm-alerta-nf">${esc(e.message)}</span>`;
+          atualizarContagem();
+          fim(null);
         })
         .verificarPrazoInformado(carga, etiqueta, pedido, nf);
     }

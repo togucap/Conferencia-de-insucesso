@@ -650,6 +650,11 @@
   .fm-ajuda { flex: 1 1 100%; margin: 0; }
   .fm-lista { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
   .fm-contagem { font-size: 13px; color: var(--text-support); padding: 0 4px; }
+  .fm-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .fm-acoes .fm-contagem { flex: 1 1 auto; }
+  .fm-lote-estado { font-size: 13px; color: var(--text-support); }
+  .fm-confirmar-todas { white-space: nowrap; }
+  @media (max-width: 760px) { .fm-confirmar-todas { flex: 1 1 100%; } }
   .fm-vazio { color: var(--text-support); text-align: center; padding: 28px 16px; }
   .fm-item {
     display: grid; grid-template-columns: minmax(170px, 1.2fr) minmax(130px, 1fr) minmax(110px, 0.8fr) auto;
