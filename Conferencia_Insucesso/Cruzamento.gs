@@ -424,6 +424,16 @@ function executarEtapaInterna_() {
     }
   }
 
+  // Suspeita de fraude: pedidos da aba "Base_Fraudes" (depois do tracking, que monta a coluna
+  // "Avaliação transportes"; uma "Recusa de Entrega" já gravada é mantida)
+  let fraude = null;
+  try {
+    fraude = resumirFraudeParaJob_(aplicarBaseFraudesNaMatriz_(ss, montagem.matriz));
+  } catch (e) {
+    console.error('Base de fraudes não aplicada: ' + e.message);
+    fraude = { erro: 'O cruzamento com a ' + FRAUDE_CONFIG.NOME_ABA + ' falhou: ' + e.message, marcados: { total: 0, itens: [] } };
+  }
+
   const criada = _criarAbaCarga(job.nomeCarga, montagem.matriz, { comoTexto: true });
   // Depois de criar a aba: _criarAbaCarga acrescenta à matriz a coluna "Conferencia MSPC" (Monte o Seu)
   const resumo = calcularResumoCarga_(montagem.matriz);
@@ -445,7 +455,8 @@ function executarEtapaInterna_() {
     avisosRelatorios: avisos,
     relatorios: arquivos.length,
     etapas: etapa,
-    tracking: tracking
+    tracking: tracking,
+    fraude: fraude
   };
   atualizarJobCruzamento_({
     status: 'concluido', fase: 'concluido', fim: new Date().toISOString(), resultado: resultado,
@@ -1143,8 +1154,10 @@ function calcularResumoCarga_(matriz) {
       etiquetas++;
       const aval = normalizarCabecalho_(txt(l, iAval));
       const transp = normalizarCabecalho_(txt(l, iTransp));
+      // A célula pode juntar motivos: "Recusa de Entrega · Suspeita de Fraude"
+      const partes = transp.split(/\s*[·;|]\s*/);
       if (aval === 'nao receber') naoReceber++;
-      if (/^recusa( (na|da|de) entrega)?$/.test(transp)) recusaEntrega++;
+      if (partes.some(x => /^recusa( (na|da|de) entrega)?$/.test(x))) recusaEntrega++;
       if (aval.indexOf('suspeita de fraude') >= 0 || transp.indexOf('suspeita de fraude') >= 0) suspeitaFraude++;
     }
     if (iCusto !== -1) {
@@ -1357,6 +1370,7 @@ function enviarEmailConclusao_(ss, r, job) {
     `Relatórios de faturamento verificados: ${r.relatorios}` + (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : ''),
     '',
     textoTrackingEmail_(r.tracking),
+    textoFraudeEmail_(r.fraude),
     '',
     url ? `Planilha: ${url}` : ''
   ].filter((l, i, a) => l !== '' || (a[i - 1] !== '' && i > 0)).join('\n');
@@ -1399,6 +1413,7 @@ function enviarEmailConclusao_(ss, r, job) {
       : '') +
     `<p style="font-size:13px;color:#64748b">Relatórios de faturamento verificados: ${r.relatorios}` +
     (r.avisosRelatorios ? ` (${r.avisosRelatorios} com aviso)` : '') + `</p>` +
+    htmlFraudeEmail_(r.fraude) +
     htmlTrackingEmail_(r.tracking) +
     (url ? `<p><a href="${escaparHtmlEmail_(url)}" style="display:inline-block;padding:10px 16px;background:#c2410c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">Abrir a carga na planilha</a></p>` : '') +
     `</div>`;
@@ -1504,4 +1519,118 @@ function forcarPermissoes() {
     // Executado a partir do editor: o resultado fica no "Registo de execução".
   }
   return titulo + '\n' + texto;
+}
+
+// ==========================================
+// SUSPEITA DE FRAUDE (aba "Base_Fraudes" da planilha)
+// ==========================================
+// A aba tem a coluna "Pedidos". Na criação da base, cada linha cujo "Número do Pedido Faturado"
+// esteja nessa lista recebe "Suspeita de Fraude" na "Avaliação transportes" (coluna "Motivo" do
+// relatório). Se a célula já tiver outro motivo (ex.: "Recusa de Entrega"), os dois ficam juntos.
+const FRAUDE_CONFIG = {
+  NOME_ABA: 'Base_Fraudes',
+  CABECALHO: 'Pedidos',
+  COLUNA_DESTINO: 'Avaliação transportes',
+  VALOR: 'Suspeita de Fraude',
+  SEPARADOR: ' · '
+};
+
+/** Chave de comparação de pedidos: sem espaços, sem ".0" de número e sem zeros à esquerda. */
+function chavePedidoFraude_(v) {
+  return String(v == null ? '' : v).trim().replace(/\.0+$/, '').replace(/\s+/g, '').replace(/^0+/, '');
+}
+
+/** Pedidos da aba Base_Fraudes. @return {{pedidos:Set<string>, erro:string}} */
+function lerBaseFraudes_(ss) {
+  const C = FRAUDE_CONFIG;
+  const aba = ss.getSheetByName(C.NOME_ABA);
+  if (!aba) return { pedidos: new Set(), erro: `A aba "${C.NOME_ABA}" não existe na planilha base.` };
+  const ultimaLinha = aba.getLastRow(), ultimaColuna = aba.getLastColumn();
+  if (ultimaLinha < 1 || ultimaColuna < 1) return { pedidos: new Set(), erro: '' };
+  const cab = aba.getRange(1, 1, 1, ultimaColuna).getDisplayValues()[0].map(normalizarCabecalho_);
+  let col = cab.indexOf(normalizarCabecalho_(C.CABECALHO));
+  if (col < 0) col = cab.indexOf('pedido');
+  if (col < 0) {
+    if (ultimaColuna !== 1) return { pedidos: new Set(), erro: `A aba "${C.NOME_ABA}" não tem a coluna "${C.CABECALHO}".` };
+    col = 0;   // uma só coluna, sem o cabeçalho esperado
+  }
+  const pedidos = new Set();
+  if (ultimaLinha >= 2) {
+    aba.getRange(2, col + 1, ultimaLinha - 1, 1).getDisplayValues().forEach(l => {
+      const k = chavePedidoFraude_(l[0]);
+      if (k) pedidos.add(k);
+    });
+  }
+  // Sem cabeçalho reconhecido, a 1.ª linha também pode ser um pedido
+  if (col === 0 && cab[0] !== normalizarCabecalho_(C.CABECALHO) && cab[0] !== 'pedido') {
+    const k = chavePedidoFraude_(aba.getRange(1, 1).getDisplayValue());
+    if (/^\d+$/.test(k)) pedidos.add(k);
+  }
+  return { pedidos, erro: '' };
+}
+
+/**
+ * Marca na matriz da carga as linhas dos pedidos da Base_Fraudes.
+ * @return {{basePedidos:number, pedidos:{pedido, nfs}[], produtos:number, erro:string}}
+ */
+function aplicarBaseFraudesNaMatriz_(ss, matriz) {
+  const C = FRAUDE_CONFIG;
+  const base = lerBaseFraudes_(ss);
+  const saida = { basePedidos: base.pedidos.size, pedidos: [], produtos: 0, erro: base.erro };
+  if (!base.pedidos.size || matriz.length < 2) return saida;
+
+  const cab = matriz[0];
+  const norm = cab.map(normalizarCabecalho_);
+  const iPed = norm.indexOf(normalizarCabecalho_(CRUZ_CONFIG.COLUNA_PEDIDO));
+  if (iPed < 0) { saida.erro = 'A carga não tem a coluna "' + CRUZ_CONFIG.COLUNA_PEDIDO + '".'; return saida; }
+  const iNF = norm.indexOf(normalizarCabecalho_(CRUZ_CONFIG.CABECALHO_NF_CARGA));
+  let iDest = norm.indexOf(normalizarCabecalho_(C.COLUNA_DESTINO));
+  if (iDest < 0) { cab.push(C.COLUNA_DESTINO); iDest = cab.length - 1; }
+
+  const porPedido = new Map();   // mantém a ordem da carga
+  for (let k = 1; k < matriz.length; k++) {
+    const l = matriz[k];
+    while (l.length < cab.length) l.push('');
+    const pedido = String(l[iPed] == null ? '' : l[iPed]).trim();
+    if (!pedido || !base.pedidos.has(chavePedidoFraude_(pedido))) continue;
+    const atual = String(l[iDest] == null ? '' : l[iDest]).trim();
+    if (!atual) l[iDest] = C.VALOR;
+    else if (normalizarCabecalho_(atual).indexOf(normalizarCabecalho_(C.VALOR)) < 0) l[iDest] = atual + C.SEPARADOR + C.VALOR;
+    saida.produtos++;
+    if (!porPedido.has(pedido)) porPedido.set(pedido, []);
+    const nf = iNF >= 0 ? String(l[iNF] == null ? '' : l[iNF]).trim() : '';
+    if (nf && porPedido.get(pedido).indexOf(nf) < 0) porPedido.get(pedido).push(nf);
+  }
+  porPedido.forEach((nfs, pedido) => saida.pedidos.push({ pedido, nfs: nfs.join(', ') }));
+  return saida;
+}
+
+/** Versão curta para o estado do job (cabe na propriedade CRUZ_JOB). */
+function resumirFraudeParaJob_(f) {
+  const LIMITE = 120;
+  return {
+    basePedidos: f.basePedidos, produtos: f.produtos, erro: f.erro || '',
+    marcados: { total: f.pedidos.length, itens: f.pedidos.slice(0, LIMITE) }
+  };
+}
+
+function textoFraudeEmail_(f) {
+  if (!f) return '';
+  if (f.erro && !f.marcados.total) return 'Suspeita de fraude: ' + f.erro;
+  if (!f.marcados.total) return `Suspeita de fraude (${FRAUDE_CONFIG.NOME_ABA}, ${f.basePedidos} pedido(s) na lista): nenhum pedido desta carga.`;
+  return `Suspeita de fraude (${FRAUDE_CONFIG.NOME_ABA}): ${f.marcados.total} pedido(s), ${f.produtos} produto(s) — ` +
+    f.marcados.itens.map(x => x.pedido + (x.nfs ? ' (NF ' + x.nfs + ')' : '')).join(', ') +
+    (f.marcados.total > f.marcados.itens.length ? ` e mais ${f.marcados.total - f.marcados.itens.length}` : '');
+}
+
+function htmlFraudeEmail_(f) {
+  if (!f || (!f.marcados.total && !f.erro)) return '';
+  if (!f.marcados.total) {
+    return `<p style="font-size:13px;color:#b45309;margin:8px 0">Suspeita de fraude: ${escaparHtmlEmail_(f.erro)}</p>`;
+  }
+  return `<div style="margin:8px 0;padding:12px 14px;border:1px solid #e9d5ff;border-left:4px solid #7e22ce;background:#faf5ff;border-radius:8px;font-size:13px">` +
+    `<b style="color:#7e22ce">Suspeita de fraude</b> — ${f.marcados.total} pedido(s) da aba ${FRAUDE_CONFIG.NOME_ABA} nesta carga ` +
+    `(${f.produtos} produto(s), marcados em "Avaliação transportes").<br>` +
+    `<span style="font-family:monospace">${f.marcados.itens.map(x => escaparHtmlEmail_(x.pedido + (x.nfs ? ' (NF ' + x.nfs + ')' : ''))).join(', ')}` +
+    (f.marcados.total > f.marcados.itens.length ? ` e mais ${f.marcados.total - f.marcados.itens.length}` : '') + `</span></div>`;
 }

@@ -342,6 +342,21 @@
       </div>`;
     }
 
+    // Suspeita de fraude: pedidos da carga que estão na aba "Base_Fraudes"
+    function htmlFraude(f) {
+      if (!f) return '';
+      if (f.erro && !f.marcados.total) return `<div class="cruz-tracking cruz-tracking-erro"><strong>Suspeita de fraude</strong><span>${esc(f.erro)}</span></div>`;
+      const lista = f.marcados.itens.map(x => x.pedido + (x.nfs ? ' (NF ' + x.nfs + ')' : '')).join(', ') +
+        (f.marcados.total > f.marcados.itens.length ? ` (+${f.marcados.total - f.marcados.itens.length})` : '');
+      return `<div class="cruz-tracking">
+        <strong>Suspeita de fraude</strong>
+        <div class="cruz-tracking-linha">${f.basePedidos} pedido(s) na aba Base_Fraudes</div>
+        ${f.marcados.total
+          ? `<details class="cruz-tracking-linha perigo" open><summary>Pedidos desta carga marcados "Suspeita de Fraude": <strong>${f.marcados.total}</strong> · ${f.produtos} produto(s)</summary><span class="cruz-tracking-nfs">Pedido ${esc(lista)}</span></details>`
+          : '<div class="cruz-tracking-linha">Pedidos desta carga marcados "Suspeita de Fraude": <strong>0</strong></div>'}
+      </div>`;
+    }
+
     function renderizarResultado(st) {
       const r = st.resultado;
       if (!blocoResultado) return;
@@ -362,6 +377,7 @@
       if (r.linhasSemProduto) linhas.push(`<div>${r.linhasSemProduto} linha(s) sem mercadoria e sem pedido foram ignoradas.</div>`);
       if (r.avisosRelatorios) linhas.push(`<div>${r.avisosRelatorios} relatório(s) com aviso ou erro de leitura.</div>`);
       if (r.tracking) linhas.push(htmlTracking(r.tracking));
+      if (r.fraude) linhas.push(htmlFraude(r.fraude));
       if (blocoResumo) blocoResumo.innerHTML = linhas.join('');
 
       const falta = r.naoEncontradas || [];
